@@ -4,10 +4,16 @@ People who lift at the gym and have trouble tracking their workouts, reps, sets,
 
 # Initial requirements
 
-- R1: allows input of both rep and set numbers
-- R2: sorts by muscle group
-- R3: tracks name of exercise
-- R4: tracks difficulty to complete (1-10)
-- R5: automatically saves after every input
-- R6: tracks the weight lifted in lbs
-- R7: allows user to view saved data
+* R1: allows input of both rep and set numbers
+* R2: sorts by muscle group
+* R3: tracks name of exercise
+* R4: tracks difficulty to complete (1-10)
+* R5: automatically saves after every input
+* R6: tracks the weight lifted in lbs
+* R7: allows user to view saved data
+
+# Round 2 requirements
+
+* R8: Provides an option for a user to display all of their personal records
+* R9: Provides an option for the user to display which exercises they have seen the most improvement in
+
