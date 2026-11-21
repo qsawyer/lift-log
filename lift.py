@@ -5,6 +5,7 @@ Usage:
                        --weight LBS --difficulty 1-10 [--date YYYY-MM-DD]
     python lift.py view [--group GROUP]
     python lift.py groups
+    python lift.py prs
 
 Data is saved to workouts.json next to this file after every add, unless
 --file or the LIFT_LOG_FILE environment variable points elsewhere.
@@ -166,6 +167,58 @@ def format_view(entries, group=None):
     return "\n".join(lines)
 
 
+# ---------- personal records (R8) ----------
+
+def exercise_key(name):
+    """Names that differ only in case or spacing are the same exercise."""
+    return " ".join(name.split()).casefold()
+
+
+def by_exercise(entries):
+    """Return {key: (display name, [entries])}.
+
+    The display name is the spelling of the most recently logged entry (latest
+    date; on the same date, the one added last).
+    """
+    grouped = {}
+    for e in entries:
+        grouped.setdefault(exercise_key(e["exercise"]), []).append(e)
+    result = {}
+    for key, items in grouped.items():
+        # max() returns the first maximum, so iterate newest-added first.
+        latest = max(reversed(items), key=lambda e: e["date"])
+        result[key] = (latest["exercise"], items)
+    return result
+
+
+def personal_records(entries):
+    """Return [(name, pr_entry)] sorted by name, ignoring case.
+
+    The PR is the heaviest weight; ties go to more reps, then the earlier date.
+    """
+    prs = []
+    for name, items in by_exercise(entries).values():
+        best = min(items, key=lambda e: (-e["weight"], -e["reps"], e["date"]))
+        prs.append((name, best))
+    prs.sort(key=lambda p: (p[0].casefold(), p[0]))
+    return prs
+
+
+def fmt_lbs(weight):
+    """185 -> '185', 132.5 -> '132.5', 2.2000000000000002 -> '2.2'."""
+    return f"{weight:.2f}".rstrip("0").rstrip(".")
+
+
+def format_prs(entries):
+    if not entries:
+        return "No workouts logged yet."
+    lines = ["Personal records:"]
+    for name, e in personal_records(entries):
+        lines.append(f"  {name}: {fmt_lbs(e['weight'])} lbs x {e['reps']} reps"
+                     f" ({e['sets']} sets) on {e['date']}")
+    return "\n".join(lines)
+
+
 # ---------- CLI ----------
 
 def build_parser():
@@ -186,6 +239,7 @@ def build_parser():
     v.add_argument("--group", "-g", help="only show this muscle group")
 
     sub.add_parser("groups", help="list muscle groups with entries")
+    sub.add_parser("prs", help="show the personal record for every exercise")
     return p
 
 
@@ -203,6 +257,8 @@ def main(argv=None):
         elif args.command == "groups":
             groups = sorted({e["group"] for e in load(path)})
             print("\n".join(groups) if groups else "No workouts logged yet.")
+        elif args.command == "prs":
+            print(format_prs(load(path)))
     except InputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
