@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.jsonl
+# user's saved workout data
+workouts.json
