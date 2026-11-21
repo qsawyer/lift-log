@@ -39,6 +39,27 @@ Example output:
   2026-11-01  Squat: 5 sets x 5 reps @ 225.5 lbs  (difficulty 9/10)
 ```
 
+### Personal records and progress
+
+```
+python lift.py prs         # heaviest weight ever logged for each exercise
+python lift.py improved    # the 5 exercises with the biggest gain in lbs
+```
+
+Example output:
+
+```
+Personal records:
+  Bench Press: 225 lbs x 5 reps (3 sets) on 2026-11-10
+  Squat: 235 lbs x 5 reps (5 sets) on 2026-11-15
+Most improved exercises:
+  1. Squat: +50 lbs (185 lbs on 2026-11-01 -> 235 lbs on 2026-11-15)
+```
+
+Improvement is your best weight minus the heaviest weight from your first
+session of that exercise. Exercise names are matched ignoring capitalization,
+so "bench press" and "Bench Press" count as the same lift.
+
 ### Where data is stored
 
 By default data goes to `workouts.json` next to `lift.py`. That file is not
