@@ -6,6 +6,7 @@ Usage:
     python lift.py view [--group GROUP]
     python lift.py groups
     python lift.py prs
+    python lift.py improved
 
 Data is saved to workouts.json next to this file after every add, unless
 --file or the LIFT_LOG_FILE environment variable points elsewhere.
@@ -219,6 +220,45 @@ def format_prs(entries):
     return "\n".join(lines)
 
 
+# ---------- most improved (R9) ----------
+
+TOP_IMPROVED = 5
+
+
+def most_improved(entries, top=TOP_IMPROVED):
+    """Return up to `top` of [(name, gain_lbs, start_entry, best_entry)].
+
+    start = heaviest entry on the exercise's earliest date (first session);
+    best = heaviest entry ever, earliest date on ties; gain = best - start.
+    Only exercises with gain > 0 are included. Largest gain first, then name.
+    """
+    results = []
+    for name, items in by_exercise(entries).values():
+        first_date = min(e["date"] for e in items)
+        start = max((e for e in items if e["date"] == first_date),
+                    key=lambda e: e["weight"])
+        best = min(items, key=lambda e: (-e["weight"], e["date"]))
+        gain = best["weight"] - start["weight"]
+        if gain > 0:
+            results.append((name, gain, start, best))
+    results.sort(key=lambda r: (-r[1], r[0].casefold(), r[0]))
+    return results[:top]
+
+
+def format_improved(entries):
+    if not entries:
+        return "No workouts logged yet."
+    ranked = most_improved(entries)
+    if not ranked:
+        return "No improvement recorded yet."
+    lines = ["Most improved exercises:"]
+    for i, (name, gain, start, best) in enumerate(ranked, 1):
+        lines.append(f"  {i}. {name}: +{fmt_lbs(gain)} lbs"
+                     f" ({fmt_lbs(start['weight'])} lbs on {start['date']}"
+                     f" -> {fmt_lbs(best['weight'])} lbs on {best['date']})")
+    return "\n".join(lines)
+
+
 # ---------- CLI ----------
 
 def build_parser():
@@ -240,6 +280,7 @@ def build_parser():
 
     sub.add_parser("groups", help="list muscle groups with entries")
     sub.add_parser("prs", help="show the personal record for every exercise")
+    sub.add_parser("improved", help="show the 5 most-improved exercises")
     return p
 
 
@@ -259,6 +300,8 @@ def main(argv=None):
             print("\n".join(groups) if groups else "No workouts logged yet.")
         elif args.command == "prs":
             print(format_prs(load(path)))
+        elif args.command == "improved":
+            print(format_improved(load(path)))
     except InputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
