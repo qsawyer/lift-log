@@ -74,6 +74,13 @@ def test_R8_names_match_ignoring_case_and_spaces(data_file):
                    "Bench Press: 245 lbs x 8 reps (3 sets) on 2026-11-01"]
 
 
+def test_R8_same_date_spelling_uses_last_added(data_file):
+    """R8: on the same date, the spelling added last is the one shown."""
+    add(data_file, exercise="ohp", weight="95", date="2026-11-01")
+    add(data_file, exercise="OHP", weight="90", date="2026-11-01")
+    assert lines(run(data_file, "prs").stdout)[1].startswith("OHP: 95 lbs")
+
+
 def test_R8_fractional_weight_shown(data_file):
     """R8: fractional pound PRs are shown exactly."""
     add(data_file, exercise="Curl", weight="32.5")
