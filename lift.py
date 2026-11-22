@@ -7,6 +7,7 @@ Usage:
     python lift.py groups
     python lift.py prs
     python lift.py improved
+    python lift.py summary [--week YYYY-MM-DD]
 
 Data is saved to workouts.json next to this file after every add, unless
 --file or the LIFT_LOG_FILE environment variable points elsewhere.
@@ -199,8 +200,7 @@ def personal_records(entries):
     """
     prs = []
     for name, items in by_exercise(entries).values():
-        best = min(items, key=lambda e: (-e["weight"], -e["reps"], e["date"]))
-        prs.append((name, best))
+        prs.append((name, best_entry(items)))
     prs.sort(key=lambda p: (p[0].casefold(), p[0]))
     return prs
 
@@ -259,6 +259,58 @@ def format_improved(entries):
     return "\n".join(lines)
 
 
+# ---------- weekly summary (R10) ----------
+
+def week_bounds(day):
+    """Return (Monday, Sunday) of the calendar week containing `day`."""
+    start = day - datetime.timedelta(days=day.weekday())
+    return start, start + datetime.timedelta(days=6)
+
+
+def best_entry(items):
+    """The R8 rule: heaviest weight, then more reps, then the earlier date."""
+    return min(items, key=lambda e: (-e["weight"], -e["reps"], e["date"]))
+
+
+def weekly_summary(entries, day):
+    """Summarize the Mon-Sun week containing `day`.
+
+    Returns {"start", "end", "workouts", "prs"}: workouts is the number of
+    distinct dates with entries; prs is [(name, best_entry)] for each exercise
+    logged that week, sorted by name ignoring case. Names use the latest
+    spelling across the whole log, so they match `prs`.
+    """
+    start, end = week_bounds(day)
+    lo, hi = start.isoformat(), end.isoformat()
+    week = [e for e in entries if lo <= e["date"] <= hi]
+    names = {key: name for key, (name, _) in by_exercise(entries).items()}
+    prs = [(names[key], best_entry(items))
+           for key, (_, items) in by_exercise(week).items()]
+    prs.sort(key=lambda p: (p[0].casefold(), p[0]))
+    return {"start": start, "end": end,
+            "workouts": len({e["date"] for e in week}), "prs": prs}
+
+
+def format_summary(entries, day):
+    s = weekly_summary(entries, day)
+    lines = [f"Week of {s['start']} to {s['end']}", f"Workouts: {s['workouts']}"]
+    if not s["prs"]:
+        lines.append("No lifts logged this week.")
+        return "\n".join(lines)
+    lines.append("PRs this week (best lift per exercise):")
+    for name, e in s["prs"]:
+        lines.append(f"  {name}: {fmt_lbs(e['weight'])} lbs x {e['reps']} reps"
+                     f" ({e['sets']} sets) on {e['date']}")
+    return "\n".join(lines)
+
+
+def parse_date(value):
+    try:
+        return datetime.date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise InputError(f"date must be YYYY-MM-DD, got {value!r}")
+
+
 # ---------- CLI ----------
 
 def build_parser():
@@ -281,6 +333,9 @@ def build_parser():
     sub.add_parser("groups", help="list muscle groups with entries")
     sub.add_parser("prs", help="show the personal record for every exercise")
     sub.add_parser("improved", help="show the 5 most-improved exercises")
+
+    w = sub.add_parser("summary", help="weekly summary: workouts and PRs (Mon-Sun)")
+    w.add_argument("--week", help="any date in the week, YYYY-MM-DD (default: this week)")
     return p
 
 
@@ -302,6 +357,9 @@ def main(argv=None):
             print(format_prs(load(path)))
         elif args.command == "improved":
             print(format_improved(load(path)))
+        elif args.command == "summary":
+            day = parse_date(args.week) if args.week else datetime.date.today()
+            print(format_summary(load(path), day))
     except InputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
