@@ -1,4 +1,4 @@
-"""Round 5 tests: edit/delete entries (R13).
+"""Round 5 tests: saved default logging unit (R12) and edit/delete (R13).
 
 Every test names its requirement. All tests use a temporary data file.
 Commands that might ask a question are run with explicit stdin (`ask`), so
@@ -55,6 +55,126 @@ def write_file(data_file, payload):
 
 def lines(out):
     return [l.strip() for l in out.strip().splitlines()]
+
+
+# ---------- R12: saved default logging unit ----------
+
+def test_R12_unit_given_becomes_default(data_file):
+    """R12: after `add --unit kg`, later adds without --unit log kg."""
+    log(data_file, unit="kg")
+    log(data_file, weight="105")
+    assert [e["unit"] for e in entries(data_file)] == ["kg", "kg"]
+    assert file_json(data_file)["settings"] == {"log_unit": "kg"}
+    assert "@ 105 kg" in run(data_file, "view", "-u", "kg").stdout
+
+
+def test_R12_default_is_used_without_asking(data_file):
+    """R12: with a saved default, add asks no question, even with no input."""
+    log(data_file, unit="kg")
+    r = log(data_file, answer="")
+    assert "?" not in r.stdout + r.stderr
+    assert "@ 100 kg" in r.stdout
+
+
+def test_R12_no_default_logs_lbs_without_asking(data_file):
+    """R12: before any unit is saved, add logs lbs and asks nothing."""
+    r = log(data_file, answer="")
+    assert "?" not in r.stdout + r.stderr
+    assert entries(data_file)[0]["unit"] == "lbs"
+    assert "settings" not in file_json(data_file)
+
+
+def test_R12_user_can_change_default(data_file):
+    """R12: passing --unit again overrides and becomes the new default."""
+    log(data_file, unit="kg")
+    log(data_file, unit="lbs")
+    log(data_file)
+    assert [e["unit"] for e in entries(data_file)] == ["kg", "lbs", "lbs"]
+    assert file_json(data_file)["settings"]["log_unit"] == "lbs"
+
+
+def test_R12_unit_is_case_insensitive_when_saved(data_file):
+    """R12: `--unit KG` saves the default as kg."""
+    log(data_file, unit="KG")
+    assert file_json(data_file)["settings"]["log_unit"] == "kg"
+
+
+def test_R12_message_only_when_default_changes(data_file):
+    """R12: add says when the default changes, and only then."""
+    msg = "Default unit for new entries is now: "
+    assert msg + "kg" in log(data_file, unit="kg").stdout
+    assert msg not in log(data_file, unit="kg").stdout
+    assert msg not in log(data_file).stdout
+    assert msg + "lbs" in log(data_file, unit="lbs").stdout
+
+
+def test_R12_explicit_lbs_with_no_default_has_no_message(data_file):
+    """R12: --unit lbs when lbs is already the default changes nothing visible."""
+    r = log(data_file, unit="lbs")
+    assert "Default unit" not in r.stdout
+    assert file_json(data_file)["settings"] == {"log_unit": "lbs"}
+
+
+def test_R12_invalid_unit_keeps_default_and_saves_nothing(data_file):
+    """R12: a bad --unit is rejected and the saved default is unchanged."""
+    log(data_file, unit="kg")
+    before = data_file.read_bytes()
+    r = add(data_file, unit="stone")
+    assert r.returncode == 2
+    assert data_file.read_bytes() == before
+
+
+def test_R12_logging_default_is_separate_from_display(data_file):
+    """R12/R11: `units kg` does not change the logging unit, and
+    `add --unit kg` does not change the display mode."""
+    run(data_file, "units", "kg")
+    log(data_file)
+    assert entries(data_file)[0]["unit"] == "lbs"
+    run(data_file, "units", "lbs")
+    log(data_file, unit="kg")
+    assert run(data_file, "units").stdout.strip() == "Weights are shown in: lbs"
+
+
+def test_R12_both_settings_survive_every_save(data_file):
+    """R12/R11: units, add, edit and delete each keep both settings."""
+    run(data_file, "units", "both")
+    log(data_file, unit="kg")
+    expected = {"units": "both", "log_unit": "kg"}
+    assert file_json(data_file)["settings"] == expected
+    log(data_file)
+    assert file_json(data_file)["settings"] == expected
+    assert run(data_file, "edit", "1", "--reps", "3").returncode == 0
+    assert file_json(data_file)["settings"] == expected
+    assert run(data_file, "delete", "2", "--yes").returncode == 0
+    assert file_json(data_file)["settings"] == expected
+    run(data_file, "units", "kg")
+    assert file_json(data_file)["settings"] == {"units": "kg", "log_unit": "kg"}
+
+
+def test_R12_unknown_saved_default_falls_back_to_lbs(data_file):
+    """R12: a hand-edited, unknown log_unit is read as lbs."""
+    write_file(data_file, {"version": 3, "settings": {"log_unit": "stone"},
+                           "entries": []})
+    log(data_file)
+    assert entries(data_file)[0]["unit"] == "lbs"
+
+
+def test_R12_edit_unit_does_not_change_default(data_file):
+    """R12/R13: relabelling one entry with edit --unit leaves the default."""
+    log(data_file, unit="kg")
+    assert run(data_file, "edit", "1", "--unit", "lbs").returncode == 0
+    assert file_json(data_file)["settings"]["log_unit"] == "kg"
+    log(data_file)
+    assert entries(data_file)[1]["unit"] == "kg"
+
+
+def test_R12_default_unit_used_in_mixed_comparisons(data_file):
+    """R12/R6: entries logged via the saved default compare by mass."""
+    log(data_file, weight="220", unit="lbs", date="2026-11-17")
+    log(data_file, weight="100", unit="kg", date="2026-11-18")
+    log(data_file, weight="99", date="2026-11-19")  # kg, from the default
+    assert "Squat: 220.46 lbs x 5 reps (5 sets) on 2026-11-18" in \
+        run(data_file, "prs").stdout
 
 
 # ---------- R13: entry IDs ----------

@@ -34,6 +34,7 @@ UNITS = ("lbs", "kg")
 KG_PER_LB = 0.45359237  # exact, by definition
 DISPLAY_UNITS = ("lbs", "kg", "both")  # R11
 DEFAULT_DISPLAY = "lbs"
+DEFAULT_LOG_UNIT = "lbs"  # R12: used until the user passes --unit
 
 
 class InputError(ValueError):
@@ -189,13 +190,16 @@ def make_entry(exercise, group, sets, reps, weight, difficulty, date=None,
 
 # ---------- operations ----------
 
-def add_entry(path, entry):
+def add_entry(path, entry, remember_unit=False):
     """Append one entry with the next id and save immediately (R5), keeping
-    saved settings. Returns the saved entry."""
+    saved settings. With remember_unit, the entry's unit becomes the default
+    logging unit (R12). Returns the saved entry."""
     data = load_file(path)
     next_id = max((e["id"] for e in data["entries"]), default=0) + 1
     entry = {"id": next_id, **{k: v for k, v in entry.items() if k != "id"}}
     data["entries"].append(entry)
+    if remember_unit:
+        data["settings"]["log_unit"] = entry["unit"]
     save(path, data["entries"], data["settings"])
     return entry
 
@@ -309,6 +313,12 @@ def fmt_weight(e, mode=DEFAULT_DISPLAY):
     """'220.46 lbs', '100 kg' or '220.46 lbs / 100 kg' (R11)."""
     return " / ".join(f"{fmt_num(weight_in(e, u))} {u}"
                       for u in shown_units(mode))
+
+
+def log_unit(settings):
+    """The saved default logging unit (R12); missing or unknown means lbs."""
+    unit = settings.get("log_unit")
+    return unit if unit in UNITS else DEFAULT_LOG_UNIT
 
 
 def display_units(settings):
@@ -518,8 +528,8 @@ def build_parser():
     a.add_argument("--sets", "-s", required=True, help="number of sets")
     a.add_argument("--reps", "-r", required=True, help="reps per set")
     a.add_argument("--weight", "-w", required=True, help="weight lifted")
-    a.add_argument("--unit", default="lbs",
-                   help="unit of --weight: lbs or kg (default: lbs)")
+    a.add_argument("--unit", help="unit of --weight: lbs or kg; it is saved as"
+                   " the default for later adds (first default: lbs)")
     a.add_argument("--difficulty", "-d", required=True, help="difficulty 1-10")
     a.add_argument("--date", help="YYYY-MM-DD (default: today)")
 
@@ -575,12 +585,16 @@ def main(argv=None):
     path = data_path(args.file)
     try:
         if args.command == "add":
+            default = log_unit(load_file(path)["settings"])
+            given = args.unit is not None
             entry = make_entry(args.exercise, args.group, args.sets, args.reps,
                                args.weight, args.difficulty, args.date,
-                               args.unit)
-            entry = add_entry(path, entry)
+                               args.unit if given else default)
+            entry = add_entry(path, entry, remember_unit=given)
             # Confirm the weight exactly as it was entered, in its own unit.
             print("Saved: " + describe(entry))
+            if given and entry["unit"] != default:
+                print(f"Default unit for new entries is now: {entry['unit']}")
         elif args.command == "edit":
             changes = {k: getattr(args, k) for k in EDIT_FIELDS}
             old, new = edit_entry(path, parse_id(args.id), changes)

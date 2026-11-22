@@ -139,10 +139,11 @@ def test_R6_improvement_across_units(data_file):
 
 
 def test_R6_first_session_start_uses_mass(data_file):
-    """R6/R9: the first session's heaviest set is chosen by mass, too."""
+    """R6/R9: the first session's heaviest set is chosen by mass, too.
+    (Round 5: lbs is now passed explicitly, since R12 keeps the last unit.)"""
     log(data_file, weight="60", unit="kg", date="2026-11-01")   # 132.28 lbs
-    log(data_file, weight="100", date="2026-11-01")
-    log(data_file, weight="150", date="2026-11-08")
+    log(data_file, weight="100", unit="lbs", date="2026-11-01")
+    log(data_file, weight="150", unit="lbs", date="2026-11-08")
     assert "+17.72 lbs (132.28 lbs on 2026-11-01" in \
         run(data_file, "improved").stdout
 
@@ -151,10 +152,11 @@ def test_R6_same_mass_in_other_unit_is_not_improvement(data_file):
     """R6/R9: 68.0388555 kg then 150 lbs is the same mass, so no gain.
 
     Without rounding, float conversion gives 149.99999999999997 lbs, which
-    would wrongly count as a tiny improvement.
+    would wrongly count as a tiny improvement. (Round 5: lbs is now passed
+    explicitly, since R12 keeps the last unit.)
     """
     log(data_file, weight="68.0388555", unit="kg", date="2026-11-01")
-    log(data_file, weight="150", date="2026-11-08")
+    log(data_file, weight="150", unit="lbs", date="2026-11-08")
     assert run(data_file, "improved").stdout.strip() == \
         "No improvement recorded yet."
 
@@ -185,12 +187,13 @@ def test_R11_default_display_is_lbs(data_file):
 
 
 def test_R11_units_kg_is_saved_and_used(data_file):
-    """R11: `units kg` is remembered; later commands show kg."""
+    """R11: `units kg` is remembered; later commands show kg. (Round 5: the
+    settings may also hold the R12 log_unit, so only "units" is checked.)"""
     mixed_log(data_file)
     r = run(data_file, "units", "kg")
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "Weights will now be shown in: kg"
-    assert file_json(data_file)["settings"] == {"units": "kg"}
+    assert file_json(data_file)["settings"]["units"] == "kg"
     out = run(data_file, "view").stdout
     assert "Deadlift: 5 sets x 5 reps @ 102.06 kg  (difficulty 8/10)" in out
     assert "Squat: 5 sets x 5 reps @ 100 kg  (difficulty 8/10)" in out
@@ -207,12 +210,13 @@ def test_R11_units_both_shows_lbs_then_kg(data_file):
 
 
 def test_R11_switching_back_to_lbs(data_file):
-    """R11: the user can switch again at any time."""
+    """R11: the user can switch again at any time. (Round 5: only "units"
+    is checked, as settings may also hold the R12 log_unit.)"""
     mixed_log(data_file)
     run(data_file, "units", "kg")
     run(data_file, "units", "lbs")
     assert "@ 220.46 lbs  (" in run(data_file, "view").stdout
-    assert file_json(data_file)["settings"] == {"units": "lbs"}
+    assert file_json(data_file)["settings"]["units"] == "lbs"
 
 
 def test_R11_units_mode_is_case_insensitive(data_file):
