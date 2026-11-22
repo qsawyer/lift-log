@@ -10,9 +10,11 @@ Usage:
     python lift.py improved [--units lbs|kg|both]
     python lift.py summary [--week YYYY-MM-DD] [--units lbs|kg|both]
     python lift.py units [lbs|kg|both]
+    python lift.py edit ID [any add option ...]
+    python lift.py delete ID [--yes]
 
-Data is saved to workouts.json next to this file after every add, unless
---file or the LIFT_LOG_FILE environment variable points elsewhere.
+Data is saved to workouts.json next to this file after every change,
+unless --file or the LIFT_LOG_FILE environment variable points elsewhere.
 """
 
 import argparse
@@ -24,7 +26,9 @@ import tempfile
 from pathlib import Path
 
 DEFAULT_FILE = Path(__file__).resolve().parent / "workouts.json"
-FILE_VERSION = 2  # 2: entries may have "unit"; optional "settings" (Round 4)
+# 2: entries may have "unit"; optional "settings" (Round 4)
+# 3: every entry has a stable "id" (Round 5, R13)
+FILE_VERSION = 3
 
 UNITS = ("lbs", "kg")
 KG_PER_LB = 0.45359237  # exact, by definition
@@ -49,15 +53,43 @@ def load_file(path):
     """Read the whole data file as {"entries": [...], "settings": {...}}.
 
     A missing file means no entries and no settings. Version 1 files have no
-    settings and no "unit" on entries; both are read as-is.
+    settings and no "unit" on entries; both are read as-is. Entries without
+    a valid id (versions 1-2, or hand edits) are given one (R13).
     """
     path = Path(path)
     if not path.exists():
         return {"entries": [], "settings": {}}
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    return {"entries": list(data.get("entries", [])),
+    return {"entries": assign_ids(data.get("entries", [])),
             "settings": dict(data.get("settings") or {})}
+
+
+def _valid_id(value):
+    return type(value) is int and value >= 1
+
+
+def assign_ids(entries):
+    """Give every entry a unique positive int "id" (R13).
+
+    Valid ids are kept (the first of any duplicates keeps it). The rest are
+    numbered after the highest valid id, in file order, so the result is the
+    same on every read until the file is saved.
+    """
+    entries = [dict(e) for e in entries]
+    seen = set()
+    needs = []
+    for i, e in enumerate(entries):
+        if _valid_id(e.get("id")) and e["id"] not in seen:
+            seen.add(e["id"])
+        else:
+            needs.append(i)
+    next_id = max(seen, default=0) + 1
+    for i in needs:
+        rest = {k: v for k, v in entries[i].items() if k != "id"}
+        entries[i] = {"id": next_id, **rest}
+        next_id += 1
+    return entries
 
 
 def load(path):
@@ -158,11 +190,77 @@ def make_entry(exercise, group, sets, reps, weight, difficulty, date=None,
 # ---------- operations ----------
 
 def add_entry(path, entry):
-    """Append one entry and save immediately (R5), keeping saved settings."""
+    """Append one entry with the next id and save immediately (R5), keeping
+    saved settings. Returns the saved entry."""
     data = load_file(path)
+    next_id = max((e["id"] for e in data["entries"]), default=0) + 1
+    entry = {"id": next_id, **{k: v for k, v in entry.items() if k != "id"}}
     data["entries"].append(entry)
     save(path, data["entries"], data["settings"])
     return entry
+
+
+# ---------- edit and delete (R13) ----------
+
+EDIT_FIELDS = ("exercise", "group", "sets", "reps", "weight", "difficulty",
+               "date", "unit")
+
+
+def parse_id(value):
+    """'7' or '#7' -> 7. Anything else is an input error."""
+    text = (value or "").strip()
+    if text.startswith("#"):
+        text = text[1:]
+    if not text.isdigit() or int(text) < 1:
+        raise InputError(f"entry ID must be a number like 7 or #7, got {value!r}")
+    return int(text)
+
+
+def find_entry(entries, entry_id):
+    """Index of the entry with this id; an unknown id is an input error."""
+    for i, e in enumerate(entries):
+        if e["id"] == entry_id:
+            return i
+    raise InputError(f"no entry with ID #{entry_id} (see `view` for IDs)")
+
+
+def edited(old, changes):
+    """The entry `old` with the given fields changed, validated like add.
+
+    `changes` maps field names to new raw values; None means keep. The id is
+    kept. A new weight without a unit keeps the entry's unit, and a new unit
+    relabels the stored number (no conversion).
+    """
+    changes = {k: v for k, v in changes.items() if v is not None}
+    if not changes:
+        raise InputError("nothing to change: give at least one of --exercise,"
+                         " --group, --sets, --reps, --weight, --unit,"
+                         " --difficulty, --date")
+    merged = {k: old.get(k) for k in EDIT_FIELDS}
+    merged["unit"] = entry_unit(old)
+    merged.update(changes)
+    new = make_entry(**merged)
+    return {"id": old["id"], **new}
+
+
+def edit_entry(path, entry_id, changes):
+    """Apply `changes` to one entry in place and save. Returns (old, new)."""
+    data = load_file(path)
+    i = find_entry(data["entries"], entry_id)
+    old = data["entries"][i]
+    new = edited(old, changes)
+    data["entries"][i] = new
+    save(path, data["entries"], data["settings"])
+    return old, new
+
+
+def delete_entry(path, entry_id):
+    """Remove one entry and save, keeping settings. Returns it."""
+    data = load_file(path)
+    i = find_entry(data["entries"], entry_id)
+    gone = data["entries"].pop(i)
+    save(path, data["entries"], data["settings"])
+    return gone
 
 
 def sort_by_group(entries):
@@ -229,8 +327,15 @@ def save_display_units(path, mode):
 
 
 def format_entry(e, mode=DEFAULT_DISPLAY):
-    return (f"  {e['date']}  {e['exercise']}: {e['sets']} sets x {e['reps']} reps"
-            f" @ {fmt_weight(e, mode)}  (difficulty {e['difficulty']}/10)")
+    ident = f"  #{e['id']}" if "id" in e else ""
+    return (f"{ident}  {e['date']}  {e['exercise']}: {e['sets']} sets x"
+            f" {e['reps']} reps @ {fmt_weight(e, mode)}"
+            f"  (difficulty {e['difficulty']}/10)")
+
+
+def describe(e):
+    """One entry with its id, weight as entered and group (add/edit/delete)."""
+    return format_entry(e, entry_unit(e)).strip() + f"  [{e['group']}]"
 
 
 def format_view(entries, group=None, units=DEFAULT_DISPLAY):
@@ -418,6 +523,22 @@ def build_parser():
     a.add_argument("--difficulty", "-d", required=True, help="difficulty 1-10")
     a.add_argument("--date", help="YYYY-MM-DD (default: today)")
 
+    ed = sub.add_parser("edit", help="change fields of one entry (see view for IDs)")
+    ed.add_argument("id", help="entry ID, e.g. 7 or #7")
+    ed.add_argument("--exercise", "-e", help="new exercise name")
+    ed.add_argument("--group", "-g", help="new muscle group")
+    ed.add_argument("--sets", "-s", help="new number of sets")
+    ed.add_argument("--reps", "-r", help="new reps per set")
+    ed.add_argument("--weight", "-w", help="new weight (keeps the entry's unit)")
+    ed.add_argument("--unit", help="lbs or kg (relabels; does not convert)")
+    ed.add_argument("--difficulty", "-d", help="new difficulty 1-10")
+    ed.add_argument("--date", help="new date, YYYY-MM-DD")
+
+    de = sub.add_parser("delete", help="delete one entry (asks first)")
+    de.add_argument("id", help="entry ID, e.g. 7 or #7")
+    de.add_argument("--yes", "-y", action="store_true",
+                    help="delete without asking")
+
     v = sub.add_parser("view", parents=[show],
                        help="show saved workouts grouped by muscle group")
     v.add_argument("--group", "-g", help="only show this muscle group")
@@ -438,6 +559,17 @@ def build_parser():
     return p
 
 
+def confirm(question):
+    """Ask a yes/no question on stdin; only y or yes counts as yes.
+    End of input (nothing to read) counts as no."""
+    try:
+        answer = input(question)
+    except EOFError:
+        print()
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     path = data_path(args.file)
@@ -446,10 +578,23 @@ def main(argv=None):
             entry = make_entry(args.exercise, args.group, args.sets, args.reps,
                                args.weight, args.difficulty, args.date,
                                args.unit)
-            add_entry(path, entry)
+            entry = add_entry(path, entry)
             # Confirm the weight exactly as it was entered, in its own unit.
-            print("Saved:" + format_entry(entry, entry_unit(entry))[1:]
-                  + f"  [{entry['group']}]")
+            print("Saved: " + describe(entry))
+        elif args.command == "edit":
+            changes = {k: getattr(args, k) for k in EDIT_FIELDS}
+            old, new = edit_entry(path, parse_id(args.id), changes)
+            print("Was: " + describe(old))
+            print("Now: " + describe(new))
+        elif args.command == "delete":
+            entry_id = parse_id(args.id)
+            entries = load_file(path)["entries"]
+            print(describe(entries[find_entry(entries, entry_id)]))
+            if not args.yes and not confirm("Delete this entry? [y/N] "):
+                print("Not deleted.")
+                return 1
+            delete_entry(path, entry_id)
+            print(f"Deleted #{entry_id}.")
         elif args.command == "groups":
             groups = sorted({e["group"] for e in load(path)})
             print("\n".join(groups) if groups else "No workouts logged yet.")

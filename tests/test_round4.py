@@ -89,15 +89,17 @@ def test_R6_kg_entry_shown_in_lbs_by_default(data_file):
 
 
 def test_R6_file_version_is_bumped(data_file):
-    """R6: files are written as version 2, since entries now carry a unit."""
+    """R6: files are written as version 2 or later, since entries now carry
+    a unit. (Changed in round 5: R13 made it version 3.)"""
     log(data_file)
-    assert lift.FILE_VERSION == 2
-    assert file_json(data_file)["version"] == 2
+    assert lift.FILE_VERSION >= 2
+    assert file_json(data_file)["version"] == lift.FILE_VERSION
 
 
 def test_R6_version1_file_is_read_as_lbs_and_kept(data_file):
     """R6: an old file (no unit fields) reads as lbs; adding to it keeps the
-    old entries exactly as they were."""
+    old entries as they were. (Changed in round 5: each also gains an R13
+    "id", and nothing else changes.)"""
     old = {"exercise": "Bench Press", "group": "chest", "sets": 3, "reps": 5,
            "weight": 200, "difficulty": 7, "date": "2026-11-01"}
     data_file.write_text(json.dumps({"version": 1, "entries": [old]}),
@@ -107,8 +109,8 @@ def test_R6_version1_file_is_read_as_lbs_and_kept(data_file):
     log(data_file, exercise="Bench Press", weight="100", unit="kg",
         group="chest")
     data = file_json(data_file)
-    assert data["version"] == 2
-    assert data["entries"][0] == old
+    assert data["version"] == lift.FILE_VERSION
+    assert data["entries"][0] == {"id": 1, **old}
 
 
 def test_R6_pr_compares_lbs_and_kg_by_mass(data_file):
