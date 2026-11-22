@@ -14,20 +14,24 @@ Each logged entry is a JSON object:
 | `group`      | string | non-empty, stored lowercase            |
 | `sets`       | int    | >= 1                                   |
 | `reps`       | int    | >= 1                                   |
-| `weight`     | number | >= 0, pounds                           |
+| `weight`     | number | >= 0, in `unit`, as entered            |
+| `unit`       | string | `lbs` or `kg` (Round 4; missing = `lbs`) |
 | `difficulty` | int    | 1–10 inclusive                         |
 | `date`       | string | ISO date (`YYYY-MM-DD`), defaults to today |
 
-The file holds `{"version": 1, "entries": [ ... ]}`.
+The file holds `{"version": 2, "settings": {...}, "entries": [ ... ]}`
+(see Round 4). Version 1 files (`{"version": 1, "entries": [...]}`, no
+`unit` fields, no `settings`) are still read; their weights are lbs.
 
 ## Commands
 
-- `add --exercise NAME --group GROUP --sets N --reps N --weight LBS --difficulty 1-10 [--date YYYY-MM-DD]`
-- `view [--group GROUP]`
+- `add --exercise NAME --group GROUP --sets N --reps N --weight W [--unit lbs|kg] --difficulty 1-10 [--date YYYY-MM-DD]`
+- `view [--group GROUP] [--units lbs|kg|both]`
 - `groups` — list muscle groups that have entries
-- `prs` — show the personal record for every exercise (R8)
-- `improved` — show the 5 most-improved exercises (R9)
-- `summary [--week YYYY-MM-DD]` — weekly summary: workouts and PRs for one Mon-Sun week (R10)
+- `prs [--units lbs|kg|both]` — show the personal record for every exercise (R8)
+- `improved [--units lbs|kg|both]` — show the 5 most-improved exercises (R9)
+- `summary [--week YYYY-MM-DD] [--units lbs|kg|both]` — weekly summary: workouts and PRs for one Mon-Sun week (R10)
+- `units [lbs|kg|both]` — show or save how weights are displayed (R11)
 
 Invalid input prints an error to stderr, exits with status 2, and does not change the file.
 
@@ -47,8 +51,8 @@ Invalid input prints an error to stderr, exits with status 2, and does not chang
   whole data file immediately (write to a temp file, then atomically replace),
   so no separate "save" step exists and a crash mid-write cannot corrupt the
   existing file. Every run reads the file fresh.
-- **R6 – weight in lbs.** `add` requires `--weight` (pounds, non-negative,
-  decimals allowed, e.g. 2.5 plates). `view` shows it with a `lbs` suffix.
+- **R6 – weight in lbs or kg.** `add` requires `--weight` (non-negative,
+  decimals allowed, e.g. 2.5 plates). Changed in Round 4: see below.
 - **R7 – view saved data.** `view` reads the file and prints all entries; with
   no data it prints `No workouts logged yet.`
 
@@ -124,3 +128,58 @@ trailing zeros (`185`, `132.5`, `2.25`).
     shown is the same spelling `prs` shows (the most recently logged one).
   - A week with no entries (including an empty log) prints the heading, then
     `Workouts: 0` and `No lifts logged this week.`
+
+## Round 4
+
+### R6 (changed) – track weight in lbs or kg
+
+- `add` takes `--unit lbs` or `--unit kg` (case-insensitive). Leaving it out
+  means `lbs`, so every Round 1-3 command works unchanged. Any other unit is
+  an input error (exit 2) and nothing is saved.
+- The weight is stored exactly as entered, with its unit:
+  `{"weight": 100, "unit": "kg", ...}`. It is never converted when saved.
+  Entries without a `unit` field (from older files) are lbs.
+- The `Saved:` confirmation after `add` shows the weight as entered
+  (`@ 100 kg`), whatever the display setting is.
+- Comparisons use the real mass, so lbs and kg entries of one exercise are
+  compared fairly: for R8 (`prs`), R9 (`improved`) and R10 (`summary`), each
+  weight is converted to lbs (1 lb = 0.45359237 kg exactly, rounded to 6
+  decimal places) before choosing the heaviest. The tie-break rules are
+  unchanged. 100 kg (220.46 lbs) beats 220 lbs.
+
+### R11 – display weights in lbs, kg, or both
+
+- There are three display modes: `lbs`, `kg`, `both`. The default is `lbs`,
+  so output looks the same as in Round 3 until the user picks something else.
+- `units` prints the current mode: `Weights are shown in: lbs`.
+- `units kg` (or `lbs`, `both`; case-insensitive) saves the mode in the data
+  file and prints `Weights will now be shown in: kg`. Every later `view`,
+  `prs`, `improved` and `summary` uses it. Workout entries are not changed.
+- `--units MODE` on `view`, `prs`, `improved` or `summary` uses MODE for that
+  one command and does not change the saved mode.
+- An invalid mode is rejected with a usage error (exit 2) and nothing is saved.
+  An unknown mode found in a hand-edited file is treated as `lbs`.
+- Formatting: a weight in its own unit is shown as stored; a converted weight
+  is computed from the stored value. Both are printed with at most two decimal
+  places and no trailing zeros (`100 kg`, `220.46 lbs`). `both` always shows
+  lbs first, joined by ` / `:
+
+  ```
+  view:      2026-11-21  Squat: 5 sets x 5 reps @ 220.46 lbs / 100 kg  (difficulty 8/10)
+  prs:       Squat: 220.46 lbs / 100 kg x 5 reps (5 sets) on 2026-11-21
+  improved:  1. Squat: +22.05 lbs / +10 kg (198.42 lbs / 90 kg on 2026-11-01 -> 220.46 lbs / 100 kg on 2026-11-21)
+  summary:   Squat: 220.46 lbs / 100 kg x 5 reps (5 sets) on 2026-11-21
+  ```
+
+  The R9 gain shown in a unit is (best − start) computed in that unit.
+  Which exercises qualify and their order are decided in lbs, as before.
+
+### Data file, version 2
+
+```
+{"version": 2, "settings": {"units": "kg"}, "entries": [ ... ]}
+```
+
+`settings` is written only once a mode has been saved with `units`. Every
+save writes `"version": 2` and keeps the saved settings. Entries from a
+version 1 file are kept exactly as they are (no `unit` field is added).
