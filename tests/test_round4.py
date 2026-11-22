@@ -163,3 +163,180 @@ def test_R6_weekly_pr_compares_by_mass(data_file):
     log(data_file, weight="105", unit="kg", date="2026-11-18")  # 231.49 lbs
     out = run(data_file, "summary", "--week", "2026-11-18").stdout
     assert "Squat: 231.49 lbs x 5 reps (5 sets) on 2026-11-18" in out
+
+
+# ---------- R11: display weights in lbs, kg or both, and switch quickly ----------
+
+def mixed_log(data_file):
+    """One lbs entry and one kg entry, both legs, same week."""
+    log(data_file, exercise="Deadlift", weight="225", date="2026-11-17")
+    log(data_file, exercise="Squat", weight="100", unit="kg", date="2026-11-18")
+
+
+def test_R11_default_display_is_lbs(data_file):
+    """R11: with nothing chosen, weights show in lbs and `units` says so."""
+    mixed_log(data_file)
+    out = run(data_file, "view").stdout
+    assert "Deadlift: 5 sets x 5 reps @ 225 lbs  (difficulty 8/10)" in out
+    assert "Squat: 5 sets x 5 reps @ 220.46 lbs  (difficulty 8/10)" in out
+    assert run(data_file, "units").stdout.strip() == "Weights are shown in: lbs"
+
+
+def test_R11_units_kg_is_saved_and_used(data_file):
+    """R11: `units kg` is remembered; later commands show kg."""
+    mixed_log(data_file)
+    r = run(data_file, "units", "kg")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "Weights will now be shown in: kg"
+    assert file_json(data_file)["settings"] == {"units": "kg"}
+    out = run(data_file, "view").stdout
+    assert "Deadlift: 5 sets x 5 reps @ 102.06 kg  (difficulty 8/10)" in out
+    assert "Squat: 5 sets x 5 reps @ 100 kg  (difficulty 8/10)" in out
+    assert run(data_file, "units").stdout.strip() == "Weights are shown in: kg"
+
+
+def test_R11_units_both_shows_lbs_then_kg(data_file):
+    """R11: `both` shows every weight as 'X lbs / Y kg'."""
+    mixed_log(data_file)
+    run(data_file, "units", "both")
+    out = run(data_file, "view").stdout
+    assert "@ 225 lbs / 102.06 kg  (difficulty 8/10)" in out
+    assert "@ 220.46 lbs / 100 kg  (difficulty 8/10)" in out
+
+
+def test_R11_switching_back_to_lbs(data_file):
+    """R11: the user can switch again at any time."""
+    mixed_log(data_file)
+    run(data_file, "units", "kg")
+    run(data_file, "units", "lbs")
+    assert "@ 220.46 lbs  (" in run(data_file, "view").stdout
+    assert file_json(data_file)["settings"] == {"units": "lbs"}
+
+
+def test_R11_units_mode_is_case_insensitive(data_file):
+    """R11: `units BOTH` works like `units both`."""
+    assert run(data_file, "units", "BOTH").returncode == 0
+    assert file_json(data_file)["settings"]["units"] == "both"
+
+
+@pytest.mark.parametrize("mode", ["stone", "pounds", ""])
+def test_R11_invalid_units_mode_rejected(data_file, mode):
+    """R11: an unknown mode is a usage error and nothing is saved."""
+    r = run(data_file, "units", mode)
+    assert r.returncode == 2
+    assert "invalid choice" in r.stderr
+    assert not data_file.exists()
+
+
+def test_R11_setting_units_does_not_change_entries(data_file):
+    """R11: switching display mode never rewrites logged weights."""
+    mixed_log(data_file)
+    before = file_json(data_file)["entries"]
+    run(data_file, "units", "kg")
+    assert file_json(data_file)["entries"] == before
+
+
+def test_R11_add_keeps_saved_units(data_file):
+    """R11/R5: logging after choosing a mode keeps the mode."""
+    run(data_file, "units", "kg")
+    log(data_file)
+    assert file_json(data_file)["settings"] == {"units": "kg"}
+    assert "@ 100 lbs" in log(data_file).stdout  # Saved: shows as entered
+    assert "@ 45.36 kg" in run(data_file, "view").stdout
+
+
+def test_R11_settings_not_written_until_chosen(data_file):
+    """R11: a file with no chosen mode has no settings block."""
+    log(data_file)
+    assert "settings" not in file_json(data_file)
+
+
+def test_R11_one_off_override_does_not_change_setting(data_file):
+    """R11: --units changes one command's output only."""
+    mixed_log(data_file)
+    run(data_file, "units", "kg")
+    before = data_file.read_bytes()
+    assert "@ 225 lbs / 102.06 kg" in run(data_file, "view", "--units", "both").stdout
+    assert "@ 225 lbs  (" in run(data_file, "view", "-u", "LBS").stdout
+    assert data_file.read_bytes() == before
+    assert "@ 102.06 kg  (" in run(data_file, "view").stdout
+
+
+def test_R11_invalid_override_rejected(data_file):
+    """R11: --units with an unknown mode is a usage error."""
+    mixed_log(data_file)
+    r = run(data_file, "view", "--units", "stone")
+    assert r.returncode == 2
+    assert "invalid choice" in r.stderr
+
+
+def test_R11_prs_in_each_mode(data_file):
+    """R11/R8: prs follows the display mode."""
+    mixed_log(data_file)
+    def pr_line(*opt):
+        return [l for l in lines(run(data_file, "prs", *opt).stdout)
+                if l.startswith("Squat")][0]
+    assert pr_line() == "Squat: 220.46 lbs x 5 reps (5 sets) on 2026-11-18"
+    assert pr_line("--units", "kg") == "Squat: 100 kg x 5 reps (5 sets) on 2026-11-18"
+    assert pr_line("--units", "both") == \
+        "Squat: 220.46 lbs / 100 kg x 5 reps (5 sets) on 2026-11-18"
+
+
+def test_R11_improved_in_each_mode(data_file):
+    """R11/R9: the gain is shown in each unit, computed in that unit."""
+    log(data_file, weight="90", unit="kg", date="2026-11-01")
+    log(data_file, weight="100", unit="kg", date="2026-11-21")
+    out = lambda *o: lines(run(data_file, "improved", *o).stdout)[1]
+    assert out() == ("1. Squat: +22.05 lbs (198.42 lbs on 2026-11-01 -> "
+                     "220.46 lbs on 2026-11-21)")
+    assert out("--units", "kg") == ("1. Squat: +10 kg (90 kg on 2026-11-01 -> "
+                                    "100 kg on 2026-11-21)")
+    assert out("--units", "both") == (
+        "1. Squat: +22.05 lbs / +10 kg (198.42 lbs / 90 kg on 2026-11-01 -> "
+        "220.46 lbs / 100 kg on 2026-11-21)")
+
+
+def test_R11_improved_kg_gain_from_lbs_entries(data_file):
+    """R11/R9: lbs entries shown in kg: 100 -> 150 lbs is +22.68 kg."""
+    log(data_file, weight="100", date="2026-11-01")
+    log(data_file, weight="150", date="2026-11-08")
+    assert lines(run(data_file, "improved", "--units", "kg").stdout)[1] == (
+        "1. Squat: +22.68 kg (45.36 kg on 2026-11-01 -> 68.04 kg on 2026-11-08)")
+
+
+def test_R11_summary_uses_saved_mode(data_file):
+    """R11/R10: the weekly summary follows the saved mode and the override."""
+    mixed_log(data_file)
+    run(data_file, "units", "kg")
+    out = lines(run(data_file, "summary", "--week", "2026-11-18").stdout)
+    assert "Deadlift: 102.06 kg x 5 reps (5 sets) on 2026-11-17" in out
+    assert "Squat: 100 kg x 5 reps (5 sets) on 2026-11-18" in out
+    out = lines(run(data_file, "summary", "--week", "2026-11-18",
+                    "--units", "both").stdout)
+    assert "Squat: 220.46 lbs / 100 kg x 5 reps (5 sets) on 2026-11-18" in out
+
+
+def test_R11_unknown_saved_mode_falls_back_to_lbs(data_file):
+    """R11: a hand-edited, unknown mode is treated as lbs, not a crash."""
+    data_file.write_text(json.dumps({"version": 2, "settings": {"units": "stone"},
+        "entries": [{"exercise": "Row", "group": "back", "sets": 3, "reps": 8,
+                     "weight": 50, "unit": "kg", "difficulty": 6,
+                     "date": "2026-11-18"}]}), encoding="utf-8")
+    assert "@ 110.23 lbs" in run(data_file, "view").stdout
+    assert run(data_file, "units").stdout.strip() == "Weights are shown in: lbs"
+
+
+def test_R11_save_display_units_validates(data_file):
+    """R11: save_display_units refuses an unknown mode for any caller."""
+    with pytest.raises(lift.InputError):
+        lift.save_display_units(data_file, "stone")
+    assert not data_file.exists()
+
+
+def test_R11_output_is_ascii(data_file):
+    """R11: every display mode prints plain ASCII (Windows cp1252 safety)."""
+    mixed_log(data_file)
+    for mode in ("lbs", "kg", "both"):
+        for cmd in (["view"], ["prs"], ["improved"],
+                    ["summary", "--week", "2026-11-18"]):
+            run(data_file, *cmd, "--units", mode).stdout.encode("ascii")

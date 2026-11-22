@@ -4,11 +4,12 @@ Usage:
     python lift.py add --exercise NAME --group GROUP --sets N --reps N \
                        --weight W [--unit lbs|kg] --difficulty 1-10 \
                        [--date YYYY-MM-DD]
-    python lift.py view [--group GROUP]
+    python lift.py view [--group GROUP] [--units lbs|kg|both]
     python lift.py groups
-    python lift.py prs
-    python lift.py improved
-    python lift.py summary [--week YYYY-MM-DD]
+    python lift.py prs [--units lbs|kg|both]
+    python lift.py improved [--units lbs|kg|both]
+    python lift.py summary [--week YYYY-MM-DD] [--units lbs|kg|both]
+    python lift.py units [lbs|kg|both]
 
 Data is saved to workouts.json next to this file after every add, unless
 --file or the LIFT_LOG_FILE environment variable points elsewhere.
@@ -27,6 +28,8 @@ FILE_VERSION = 2  # 2: entries may have "unit"; optional "settings" (Round 4)
 
 UNITS = ("lbs", "kg")
 KG_PER_LB = 0.45359237  # exact, by definition
+DISPLAY_UNITS = ("lbs", "kg", "both")  # R11
+DEFAULT_DISPLAY = "lbs"
 
 
 class InputError(ValueError):
@@ -173,7 +176,7 @@ def sort_by_group(entries):
     return grouped
 
 
-# ---------- units (R6) ----------
+# ---------- units (R6, R11) ----------
 
 def entry_unit(e):
     """The unit an entry was logged in. Older entries have none: lbs."""
@@ -199,16 +202,38 @@ def fmt_num(x):
     return f"{x:.2f}".rstrip("0").rstrip(".")
 
 
-def fmt_weight(e, unit="lbs"):
-    return f"{fmt_num(weight_in(e, unit))} {unit}"
+def shown_units(mode):
+    """The units printed for a display mode: 'both' is lbs then kg."""
+    return UNITS if mode == "both" else (mode,)
 
 
-def format_entry(e, unit="lbs"):
+def fmt_weight(e, mode=DEFAULT_DISPLAY):
+    """'220.46 lbs', '100 kg' or '220.46 lbs / 100 kg' (R11)."""
+    return " / ".join(f"{fmt_num(weight_in(e, u))} {u}"
+                      for u in shown_units(mode))
+
+
+def display_units(settings):
+    """The saved display mode; missing or unknown values mean lbs."""
+    mode = settings.get("units")
+    return mode if mode in DISPLAY_UNITS else DEFAULT_DISPLAY
+
+
+def save_display_units(path, mode):
+    """Remember the display mode in the data file; entries are untouched."""
+    if mode not in DISPLAY_UNITS:
+        raise InputError(f"units must be lbs, kg or both, got {mode!r}")
+    data = load_file(path)
+    data["settings"]["units"] = mode
+    save(path, data["entries"], data["settings"])
+
+
+def format_entry(e, mode=DEFAULT_DISPLAY):
     return (f"  {e['date']}  {e['exercise']}: {e['sets']} sets x {e['reps']} reps"
-            f" @ {fmt_weight(e, unit)}  (difficulty {e['difficulty']}/10)")
+            f" @ {fmt_weight(e, mode)}  (difficulty {e['difficulty']}/10)")
 
 
-def format_view(entries, group=None):
+def format_view(entries, group=None, units=DEFAULT_DISPLAY):
     if group is not None:
         group = group.strip().lower()
         entries = [e for e in entries if e["group"] == group]
@@ -219,7 +244,7 @@ def format_view(entries, group=None):
     lines = []
     for g, items in sort_by_group(entries).items():
         lines.append(f"== {g} ==")
-        lines.extend(format_entry(e) for e in items)
+        lines.extend(format_entry(e, units) for e in items)
     return "\n".join(lines)
 
 
@@ -259,12 +284,12 @@ def personal_records(entries):
     return prs
 
 
-def format_prs(entries):
+def format_prs(entries, units=DEFAULT_DISPLAY):
     if not entries:
         return "No workouts logged yet."
     lines = ["Personal records:"]
     for name, e in personal_records(entries):
-        lines.append(f"  {name}: {fmt_weight(e)} x {e['reps']} reps"
+        lines.append(f"  {name}: {fmt_weight(e, units)} x {e['reps']} reps"
                      f" ({e['sets']} sets) on {e['date']}")
     return "\n".join(lines)
 
@@ -295,7 +320,13 @@ def most_improved(entries, top=TOP_IMPROVED):
     return results[:top]
 
 
-def format_improved(entries):
+def fmt_gain(start, best, mode):
+    """The gain in each shown unit, each computed in that unit (R11)."""
+    return " / ".join(f"+{fmt_num(weight_in(best, u) - weight_in(start, u))} {u}"
+                      for u in shown_units(mode))
+
+
+def format_improved(entries, units=DEFAULT_DISPLAY):
     if not entries:
         return "No workouts logged yet."
     ranked = most_improved(entries)
@@ -303,9 +334,9 @@ def format_improved(entries):
         return "No improvement recorded yet."
     lines = ["Most improved exercises:"]
     for i, (name, gain, start, best) in enumerate(ranked, 1):
-        lines.append(f"  {i}. {name}: +{fmt_num(gain)} lbs"
-                     f" ({fmt_weight(start)} on {start['date']}"
-                     f" -> {fmt_weight(best)} on {best['date']})")
+        lines.append(f"  {i}. {name}: {fmt_gain(start, best, units)}"
+                     f" ({fmt_weight(start, units)} on {start['date']}"
+                     f" -> {fmt_weight(best, units)} on {best['date']})")
     return "\n".join(lines)
 
 
@@ -344,7 +375,7 @@ def weekly_summary(entries, day):
             "workouts": len({e["date"] for e in week}), "prs": prs}
 
 
-def format_summary(entries, day):
+def format_summary(entries, day, units=DEFAULT_DISPLAY):
     s = weekly_summary(entries, day)
     lines = [f"Week of {s['start']} to {s['end']}", f"Workouts: {s['workouts']}"]
     if not s["prs"]:
@@ -352,7 +383,7 @@ def format_summary(entries, day):
         return "\n".join(lines)
     lines.append("PRs this week (best lift per exercise):")
     for name, e in s["prs"]:
-        lines.append(f"  {name}: {fmt_weight(e)} x {e['reps']} reps"
+        lines.append(f"  {name}: {fmt_weight(e, units)} x {e['reps']} reps"
                      f" ({e['sets']} sets) on {e['date']}")
     return "\n".join(lines)
 
@@ -371,6 +402,11 @@ def build_parser():
     p.add_argument("--file", help="data file (default: workouts.json or $LIFT_LOG_FILE)")
     sub = p.add_subparsers(dest="command", required=True)
 
+    # --units on every command that shows weights: a one-off override (R11).
+    show = argparse.ArgumentParser(add_help=False)
+    show.add_argument("--units", "-u", type=str.lower, choices=DISPLAY_UNITS,
+                      help="show weights in lbs, kg or both, this time only")
+
     a = sub.add_parser("add", help="log an exercise")
     a.add_argument("--exercise", "-e", required=True, help="exercise name")
     a.add_argument("--group", "-g", required=True, help="muscle group, e.g. chest")
@@ -382,15 +418,23 @@ def build_parser():
     a.add_argument("--difficulty", "-d", required=True, help="difficulty 1-10")
     a.add_argument("--date", help="YYYY-MM-DD (default: today)")
 
-    v = sub.add_parser("view", help="show saved workouts grouped by muscle group")
+    v = sub.add_parser("view", parents=[show],
+                       help="show saved workouts grouped by muscle group")
     v.add_argument("--group", "-g", help="only show this muscle group")
 
     sub.add_parser("groups", help="list muscle groups with entries")
-    sub.add_parser("prs", help="show the personal record for every exercise")
-    sub.add_parser("improved", help="show the 5 most-improved exercises")
+    sub.add_parser("prs", parents=[show],
+                   help="show the personal record for every exercise")
+    sub.add_parser("improved", parents=[show],
+                   help="show the 5 most-improved exercises")
 
-    w = sub.add_parser("summary", help="weekly summary: workouts and PRs (Mon-Sun)")
+    w = sub.add_parser("summary", parents=[show],
+                       help="weekly summary: workouts and PRs (Mon-Sun)")
     w.add_argument("--week", help="any date in the week, YYYY-MM-DD (default: this week)")
+
+    u = sub.add_parser("units", help="show or save how weights are displayed")
+    u.add_argument("mode", nargs="?", type=str.lower, choices=DISPLAY_UNITS,
+                   help="lbs, kg or both (omit to see the current setting)")
     return p
 
 
@@ -406,18 +450,29 @@ def main(argv=None):
             # Confirm the weight exactly as it was entered, in its own unit.
             print("Saved:" + format_entry(entry, entry_unit(entry))[1:]
                   + f"  [{entry['group']}]")
-        elif args.command == "view":
-            print(format_view(load(path), args.group))
         elif args.command == "groups":
             groups = sorted({e["group"] for e in load(path)})
             print("\n".join(groups) if groups else "No workouts logged yet.")
-        elif args.command == "prs":
-            print(format_prs(load(path)))
-        elif args.command == "improved":
-            print(format_improved(load(path)))
-        elif args.command == "summary":
-            day = parse_date(args.week) if args.week else datetime.date.today()
-            print(format_summary(load(path), day))
+        elif args.command == "units":
+            if args.mode is None:
+                mode = display_units(load_file(path)["settings"])
+                print(f"Weights are shown in: {mode}")
+            else:
+                save_display_units(path, args.mode)
+                print(f"Weights will now be shown in: {args.mode}")
+        else:
+            data = load_file(path)
+            entries = data["entries"]
+            units = args.units or display_units(data["settings"])
+            if args.command == "view":
+                print(format_view(entries, args.group, units))
+            elif args.command == "prs":
+                print(format_prs(entries, units))
+            elif args.command == "improved":
+                print(format_improved(entries, units))
+            elif args.command == "summary":
+                day = parse_date(args.week) if args.week else datetime.date.today()
+                print(format_summary(entries, day, units))
     except InputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
