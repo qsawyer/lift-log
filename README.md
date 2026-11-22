@@ -124,6 +124,31 @@ You can mix units: a lift logged in kg and one logged in lbs are compared by
 their real weight, so 100 kg (220.46 lbs) counts as heavier than 220 lbs for
 `prs`, `improved` and `summary`.
 
+### Export to a spreadsheet
+
+```
+python lift.py export                     # writes workouts.csv in this folder
+python lift.py export lifts-nov.csv       # or any file name you like
+python lift.py export --group legs        # only one muscle group
+python lift.py export --yes               # replace an existing file without asking
+```
+
+This writes a CSV file you can open in Excel (double-click it) or bring into
+Google Sheets (File > Import > Upload). There is one row per entry, oldest
+first:
+
+```
+id,date,exercise,group,sets,reps,weight,unit,weight_lbs,weight_kg,difficulty
+1,2026-11-18,Bench Press,chest,3,8,185,lbs,185,83.91,7
+2,2026-11-20,Squat,legs,5,5,100,kg,220.46,100,8
+```
+
+`weight` and `unit` are exactly what you logged. `weight_lbs` and `weight_kg`
+give every entry in both units, so you can sort or chart lifts logged in
+different units together. If the file already exists, `export` asks before
+replacing it. It never changes your data file. Close the CSV in Excel
+before exporting again, or the export can't write it.
+
 ### Where data is stored
 
 By default data goes to `workouts.json` next to `lift.py`. That file is not
