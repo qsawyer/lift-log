@@ -60,6 +60,27 @@ Improvement is your best weight minus the heaviest weight from your first
 session of that exercise. Exercise names are matched ignoring capitalization,
 so "bench press" and "Bench Press" count as the same lift.
 
+### Weekly summary
+
+```
+python lift.py summary                     # this week (Monday to Sunday)
+python lift.py summary --week 2026-11-12   # the week containing that date
+```
+
+Example output:
+
+```
+Week of 2026-11-16 to 2026-11-22
+Workouts: 2
+PRs this week (best lift per exercise):
+  Bench Press: 225 lbs x 5 reps (3 sets) on 2026-11-18
+  Squat: 235 lbs x 5 reps (5 sets) on 2026-11-20
+```
+
+"Workouts" counts the days you trained, so a day with three exercises is one
+workout. "PRs this week" is your heaviest set of each exercise you did that
+week, even if you lifted more in an earlier week (use `prs` for all-time records).
+
 ### Where data is stored
 
 By default data goes to `workouts.json` next to `lift.py`. That file is not
