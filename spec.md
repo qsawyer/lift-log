@@ -155,8 +155,8 @@ trailing zeros (`185`, `132.5`, `2.25`).
 - `units kg` (or `lbs`, `both`; case-insensitive) saves the mode in the data
   file and prints `Weights will now be shown in: kg`. Every later `view`,
   `prs`, `improved` and `summary` uses it. Workout entries are not changed.
-- `--units MODE` on `view`, `prs`, `improved` or `summary` uses MODE for that
-  one command and does not change the saved mode.
+- `--units MODE` (short: `-u`, case-insensitive) on `view`, `prs`, `improved`
+  or `summary` uses MODE for that one command and does not change the saved mode.
 - An invalid mode is rejected with a usage error (exit 2) and nothing is saved.
   An unknown mode found in a hand-edited file is treated as `lbs`.
 - Formatting: a weight in its own unit is shown as stored; a converted weight

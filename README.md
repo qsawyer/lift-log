@@ -2,7 +2,7 @@
 
 A small command-line workout tracker for people who lift. Notebooks get lost and
 phone notes don't always save. Lift Log records each exercise (name, muscle group,
-sets, reps, weight in lbs, and difficulty 1–10) and **saves to disk right after
+sets, reps, weight in lbs or kg, and difficulty 1–10) and **saves to disk right after
 every entry**. You can view your history grouped by muscle group.
 
 Requires Python 3 and nothing else (pytest is only needed to run the tests).
@@ -18,9 +18,11 @@ python lift.py <command> [args]
 ```
 python lift.py add --exercise "Bench Press" --group chest --sets 3 --reps 8 --weight 185 --difficulty 7
 python lift.py add -e Squat -g legs -s 5 -r 5 -w 225.5 -d 9 --date 2026-11-01
+python lift.py add -e Deadlift -g back -s 3 -r 5 -w 140 --unit kg -d 8
 ```
 
-`--date` is optional and defaults to today. Short flags: `-e -g -s -r -w -d`.
+`--date` is optional and defaults to today. `--unit` is `lbs` (the default) or
+`kg`; the weight is saved exactly as you typed it. Short flags: `-e -g -s -r -w -d`.
 
 ### View saved workouts
 
@@ -80,6 +82,24 @@ PRs this week (best lift per exercise):
 "Workouts" counts the days you trained, so a day with three exercises is one
 workout. "PRs this week" is your heaviest set of each exercise you did that
 week, even if you lifted more in an earlier week (use `prs` for all-time records).
+
+### Showing weights in lbs, kg, or both
+
+```
+python lift.py units          # see the current setting (lbs until you change it)
+python lift.py units kg       # from now on, show every weight in kg
+python lift.py units both     # show "225 lbs / 102.06 kg"
+python lift.py units lbs      # back to lbs
+python lift.py prs --units kg # just this once, without changing the setting
+```
+
+`--units` (or `-u`) works on `view`, `prs`, `improved` and `summary`. The
+setting is saved in your data file and never changes the weights you logged.
+Converted weights are rounded to two decimals (1 lb = 0.45359237 kg).
+
+You can mix units: a lift logged in kg and one logged in lbs are compared by
+their real weight, so 100 kg (220.46 lbs) counts as heavier than 220 lbs for
+`prs`, `improved` and `summary`.
 
 ### Where data is stored
 
