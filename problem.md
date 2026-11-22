@@ -26,3 +26,7 @@ People who lift at the gym and have trouble tracking their workouts, reps, sets,
 - R6 (Changed): Used to track the weight lifted in lbs, now gives the user the option to track either in lbs or kg
 - R11: User can choose to have weight displayed in both lbs and kg, user can also quickly and easily switch if a number is shown as kg, lbs, or both.
 
+# Round 5 requirements
+
+- R12: Once a unit is set it is saved as the default and doesnt display a question for units, unless the user prompts for it
+- R13: Allows the user to delete or edit an entry
