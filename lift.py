@@ -2,7 +2,8 @@
 
 Usage:
     python lift.py add --exercise NAME --group GROUP --sets N --reps N \
-                       --weight LBS --difficulty 1-10 [--date YYYY-MM-DD]
+                       --weight W [--unit lbs|kg] --difficulty 1-10 \
+                       [--date YYYY-MM-DD]
     python lift.py view [--group GROUP]
     python lift.py groups
     python lift.py prs
@@ -22,7 +23,10 @@ import tempfile
 from pathlib import Path
 
 DEFAULT_FILE = Path(__file__).resolve().parent / "workouts.json"
-FILE_VERSION = 1
+FILE_VERSION = 2  # 2: entries may have "unit"; optional "settings" (Round 4)
+
+UNITS = ("lbs", "kg")
+KG_PER_LB = 0.45359237  # exact, by definition
 
 
 class InputError(ValueError):
@@ -38,21 +42,35 @@ def data_path(cli_value=None):
     return Path(env) if env else DEFAULT_FILE
 
 
-def load(path):
-    """Read all entries from the data file. Missing file means no entries."""
+def load_file(path):
+    """Read the whole data file as {"entries": [...], "settings": {...}}.
+
+    A missing file means no entries and no settings. Version 1 files have no
+    settings and no "unit" on entries; both are read as-is.
+    """
     path = Path(path)
     if not path.exists():
-        return []
+        return {"entries": [], "settings": {}}
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    return list(data.get("entries", []))
+    return {"entries": list(data.get("entries", [])),
+            "settings": dict(data.get("settings") or {})}
 
 
-def save(path, entries):
-    """Write all entries atomically: temp file in same dir, then replace."""
+def load(path):
+    """Read all entries from the data file. Missing file means no entries."""
+    return load_file(path)["entries"]
+
+
+def save(path, entries, settings=None):
+    """Write all entries (and settings, if any) atomically: temp file in the
+    same dir, then replace."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"version": FILE_VERSION, "entries": entries}
+    payload = {"version": FILE_VERSION}
+    if settings:
+        payload["settings"] = settings
+    payload["entries"] = entries
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".lift-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -80,7 +98,8 @@ def _positive_int(value, field):
     return n
 
 
-def make_entry(exercise, group, sets, reps, weight, difficulty, date=None):
+def make_entry(exercise, group, sets, reps, weight, difficulty, date=None,
+               unit="lbs"):
     exercise = (exercise or "").strip()
     if not exercise:
         raise InputError("exercise name is required")
@@ -94,13 +113,17 @@ def make_entry(exercise, group, sets, reps, weight, difficulty, date=None):
     try:
         weight = float(weight)
     except (TypeError, ValueError):
-        raise InputError(f"weight must be a number of lbs, got {weight!r}")
+        raise InputError(f"weight must be a number, got {weight!r}")
     if weight != weight or weight in (float("inf"), float("-inf")):
         raise InputError("weight must be a finite number")
     if weight < 0:
         raise InputError(f"weight cannot be negative, got {weight}")
     if weight == int(weight):
         weight = int(weight)
+
+    unit = (unit or "").strip().lower()
+    if unit not in UNITS:
+        raise InputError(f"unit must be lbs or kg, got {unit!r}")
 
     try:
         difficulty = int(difficulty)
@@ -123,6 +146,7 @@ def make_entry(exercise, group, sets, reps, weight, difficulty, date=None):
         "sets": sets,
         "reps": reps,
         "weight": weight,
+        "unit": unit,
         "difficulty": difficulty,
         "date": date,
     }
@@ -131,10 +155,10 @@ def make_entry(exercise, group, sets, reps, weight, difficulty, date=None):
 # ---------- operations ----------
 
 def add_entry(path, entry):
-    """Append one entry and save immediately (R5)."""
-    entries = load(path)
-    entries.append(entry)
-    save(path, entries)
+    """Append one entry and save immediately (R5), keeping saved settings."""
+    data = load_file(path)
+    data["entries"].append(entry)
+    save(path, data["entries"], data["settings"])
     return entry
 
 
@@ -149,9 +173,39 @@ def sort_by_group(entries):
     return grouped
 
 
-def format_entry(e):
+# ---------- units (R6) ----------
+
+def entry_unit(e):
+    """The unit an entry was logged in. Older entries have none: lbs."""
+    return e.get("unit", "lbs")
+
+
+def weight_in(e, unit):
+    """An entry's weight in `unit`. Its own unit is returned unchanged;
+    conversions are rounded to 6 places so equal masses compare equal."""
+    w = e["weight"]
+    if entry_unit(e) == unit:
+        return w
+    return round(w * KG_PER_LB if unit == "kg" else w / KG_PER_LB, 6)
+
+
+def weight_lbs(e):
+    """Weight in lbs, used whenever entries are compared (R8, R9, R10)."""
+    return weight_in(e, "lbs")
+
+
+def fmt_num(x):
+    """185 -> '185', 132.5 -> '132.5', 2.2000000000000002 -> '2.2'."""
+    return f"{x:.2f}".rstrip("0").rstrip(".")
+
+
+def fmt_weight(e, unit="lbs"):
+    return f"{fmt_num(weight_in(e, unit))} {unit}"
+
+
+def format_entry(e, unit="lbs"):
     return (f"  {e['date']}  {e['exercise']}: {e['sets']} sets x {e['reps']} reps"
-            f" @ {e['weight']} lbs  (difficulty {e['difficulty']}/10)")
+            f" @ {fmt_weight(e, unit)}  (difficulty {e['difficulty']}/10)")
 
 
 def format_view(entries, group=None):
@@ -205,17 +259,12 @@ def personal_records(entries):
     return prs
 
 
-def fmt_lbs(weight):
-    """185 -> '185', 132.5 -> '132.5', 2.2000000000000002 -> '2.2'."""
-    return f"{weight:.2f}".rstrip("0").rstrip(".")
-
-
 def format_prs(entries):
     if not entries:
         return "No workouts logged yet."
     lines = ["Personal records:"]
     for name, e in personal_records(entries):
-        lines.append(f"  {name}: {fmt_lbs(e['weight'])} lbs x {e['reps']} reps"
+        lines.append(f"  {name}: {fmt_weight(e)} x {e['reps']} reps"
                      f" ({e['sets']} sets) on {e['date']}")
     return "\n".join(lines)
 
@@ -229,16 +278,17 @@ def most_improved(entries, top=TOP_IMPROVED):
     """Return up to `top` of [(name, gain_lbs, start_entry, best_entry)].
 
     start = heaviest entry on the exercise's earliest date (first session);
-    best = heaviest entry ever, earliest date on ties; gain = best - start.
+    best = heaviest entry ever, earliest date on ties; gain = best - start,
+    in lbs (entries logged in kg are converted before comparing).
     Only exercises with gain > 0 are included. Largest gain first, then name.
     """
     results = []
     for name, items in by_exercise(entries).values():
         first_date = min(e["date"] for e in items)
         start = max((e for e in items if e["date"] == first_date),
-                    key=lambda e: e["weight"])
-        best = min(items, key=lambda e: (-e["weight"], e["date"]))
-        gain = best["weight"] - start["weight"]
+                    key=weight_lbs)
+        best = min(items, key=lambda e: (-weight_lbs(e), e["date"]))
+        gain = weight_lbs(best) - weight_lbs(start)
         if gain > 0:
             results.append((name, gain, start, best))
     results.sort(key=lambda r: (-r[1], r[0].casefold(), r[0]))
@@ -253,9 +303,9 @@ def format_improved(entries):
         return "No improvement recorded yet."
     lines = ["Most improved exercises:"]
     for i, (name, gain, start, best) in enumerate(ranked, 1):
-        lines.append(f"  {i}. {name}: +{fmt_lbs(gain)} lbs"
-                     f" ({fmt_lbs(start['weight'])} lbs on {start['date']}"
-                     f" -> {fmt_lbs(best['weight'])} lbs on {best['date']})")
+        lines.append(f"  {i}. {name}: +{fmt_num(gain)} lbs"
+                     f" ({fmt_weight(start)} on {start['date']}"
+                     f" -> {fmt_weight(best)} on {best['date']})")
     return "\n".join(lines)
 
 
@@ -268,8 +318,11 @@ def week_bounds(day):
 
 
 def best_entry(items):
-    """The R8 rule: heaviest weight, then more reps, then the earlier date."""
-    return min(items, key=lambda e: (-e["weight"], -e["reps"], e["date"]))
+    """The R8 rule: heaviest weight, then more reps, then the earlier date.
+
+    Weights are compared in lbs, so lbs and kg entries compare by mass (R6).
+    """
+    return min(items, key=lambda e: (-weight_lbs(e), -e["reps"], e["date"]))
 
 
 def weekly_summary(entries, day):
@@ -299,7 +352,7 @@ def format_summary(entries, day):
         return "\n".join(lines)
     lines.append("PRs this week (best lift per exercise):")
     for name, e in s["prs"]:
-        lines.append(f"  {name}: {fmt_lbs(e['weight'])} lbs x {e['reps']} reps"
+        lines.append(f"  {name}: {fmt_weight(e)} x {e['reps']} reps"
                      f" ({e['sets']} sets) on {e['date']}")
     return "\n".join(lines)
 
@@ -323,7 +376,9 @@ def build_parser():
     a.add_argument("--group", "-g", required=True, help="muscle group, e.g. chest")
     a.add_argument("--sets", "-s", required=True, help="number of sets")
     a.add_argument("--reps", "-r", required=True, help="reps per set")
-    a.add_argument("--weight", "-w", required=True, help="weight in lbs")
+    a.add_argument("--weight", "-w", required=True, help="weight lifted")
+    a.add_argument("--unit", default="lbs",
+                   help="unit of --weight: lbs or kg (default: lbs)")
     a.add_argument("--difficulty", "-d", required=True, help="difficulty 1-10")
     a.add_argument("--date", help="YYYY-MM-DD (default: today)")
 
@@ -345,9 +400,12 @@ def main(argv=None):
     try:
         if args.command == "add":
             entry = make_entry(args.exercise, args.group, args.sets, args.reps,
-                               args.weight, args.difficulty, args.date)
+                               args.weight, args.difficulty, args.date,
+                               args.unit)
             add_entry(path, entry)
-            print("Saved:" + format_entry(entry)[1:] + f"  [{entry['group']}]")
+            # Confirm the weight exactly as it was entered, in its own unit.
+            print("Saved:" + format_entry(entry, entry_unit(entry))[1:]
+                  + f"  [{entry['group']}]")
         elif args.command == "view":
             print(format_view(load(path), args.group))
         elif args.command == "groups":
