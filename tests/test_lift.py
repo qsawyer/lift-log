@@ -33,11 +33,13 @@ def run(data_file, *args):
 
 
 def add(data_file, exercise="Bench Press", group="chest", sets="3", reps="8",
-        weight="185", difficulty="7", date="2026-11-01"):
+        weight="185", difficulty="7", date="2026-11-01", unit=None):
     args = ["add", "--exercise", exercise, "--group", group, "--sets", sets,
             "--reps", reps, "--weight", weight, "--difficulty", difficulty]
     if date is not None:
         args += ["--date", date]
+    if unit is not None:  # R6 (changed in round 4): omit to log lbs
+        args += ["--unit", unit]
     return run(data_file, *args)
 
 
@@ -218,26 +220,36 @@ def test_R5_file_location_override(tmp_path):
     assert saved(target)[0]["exercise"] == "Dip"
 
 
-# ---------- R6: weight in lbs ----------
+# ---------- R6: weight in lbs or kg (changed in round 4) ----------
 
 def test_R6_weight_saved_in_lbs(data_file):
-    """R6: weight is stored as a number and shown with 'lbs'."""
+    """R6 (changed in round 4): weight was lbs-only; now lbs is the default
+    unit. Without --unit, the weight is stored as a number with unit "lbs"
+    and shown with 'lbs'. Logging in kg is covered here and in
+    tests/test_round4.py."""
     add(data_file, weight="225")
-    assert saved(data_file)[0]["weight"] == 225
+    e = saved(data_file)[0]
+    assert (e["weight"], e["unit"]) == (225, "lbs")
     assert "@ 225 lbs" in run(data_file, "view").stdout
 
 
-def test_R6_fractional_weight_allowed(data_file):
-    """R6: fractional pounds (e.g. 2.5 lb plates) are kept exactly."""
-    add(data_file, weight="132.5")
-    assert saved(data_file)[0]["weight"] == 132.5
-    assert "@ 132.5 lbs" in run(data_file, "view").stdout
+@pytest.mark.parametrize("unit,weight,shown", [(None, "132.5", "@ 132.5 lbs"),
+                                               ("kg", "62.5", "@ 62.5 kg")])
+def test_R6_fractional_weight_allowed(data_file, unit, weight, shown):
+    """R6 (changed in round 4): fractional weights (e.g. 2.5 lb or 1.25 kg
+    plates) are kept exactly, in whichever unit was logged."""
+    add(data_file, weight=weight, unit=unit)
+    assert saved(data_file)[0]["weight"] == float(weight)
+    shown_unit = unit or "lbs"
+    assert shown in run(data_file, "view", "--units", shown_unit).stdout
 
 
+@pytest.mark.parametrize("unit", [None, "kg"])
 @pytest.mark.parametrize("value", ["-5", "heavy", "nan", "inf"])
-def test_R6_invalid_weight_rejected(data_file, value):
-    """R6: negative or non-numeric weight is rejected and not saved."""
-    r = add(data_file, weight=value)
+def test_R6_invalid_weight_rejected(data_file, value, unit):
+    """R6 (changed in round 4): negative or non-numeric weight is rejected
+    and not saved, whether it is logged in lbs or kg."""
+    r = add(data_file, weight=value, unit=unit)
     assert r.returncode == 2
     assert "weight" in r.stderr
     assert not data_file.exists()

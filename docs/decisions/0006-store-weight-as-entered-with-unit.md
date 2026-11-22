@@ -2,6 +2,29 @@
 
 **Status:** accepted · 2026-11-22
 
+## Requirement change
+
+**R6 changed in Round 4 from lbs-only to lbs-or-kg.** Rounds 1-3 read "R6:
+tracks the weight lifted in lbs", and every weight was saved and shown as
+pounds. Round 4 of `problem.md` changes it to "gives the user the option to
+track either in lbs or kg". The reason is that a lifter whose gym, plates or
+program uses kilograms otherwise had to convert every lift to pounds by hand
+before logging it, which is slow and invites mistakes.
+
+**What happens to existing data:**
+- Nothing is migrated or rewritten. Version 1 files (Rounds 1-3) are read
+  as they are; an entry without a `unit` field means lbs.
+- The first save after upgrading (an `add` or `units`) writes the file as
+  version 2. The old entries are kept exactly as they were, with no `unit`
+  field added. New entries always carry `"unit"`.
+- Output for old data does not change: the default display (R11) is lbs,
+  so `view`, `prs`, `improved` and `summary` print the same lines as in
+  Round 3 until the user chooses kg or both.
+- Going back is the only risk: a Round 3 copy of the program reading a
+  version 2 file would treat kg entries as lbs.
+
+## Decision
+
 In the context of **R6 (changed): the user can now log weight in lbs or kg,
 while R8, R9 and R10 must still pick the heaviest lift correctly, and the data
 file already holds lbs-only entries from earlier rounds**,
