@@ -25,6 +25,16 @@
 - Changing the data file format requires bumping `FILE_VERSION` and still
   reading older files (see decision 0001).
 - Never read or modify the real `workouts.json`; it holds the user's data.
+- Pick an exercise's best entry only through `best_entry()` in `lift.py` (the
+  R8 rule: heaviest weight, then more reps, then earlier date), so `prs` and
+  other commands never disagree.
+- Working-copy files use CRLF (`core.autocrlf=true`). Any script that rewrites a
+  source file must preserve its line endings (use bytes, not
+  `read_text`/`write_text`), and must restore the file exactly after a
+  mutation check.
+- Shared test helpers (`add`, `run`, `data_file`) live in `tests/test_lift.py`
+  and are imported by later test files; don't rename them without updating
+  every importer.
 
 ## Git
 - Never undo or amend a commit (no `--amend`, `reset`, `revert` of pushed work,
