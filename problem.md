@@ -30,3 +30,7 @@ People who lift at the gym and have trouble tracking their workouts, reps, sets,
 
 - R12: Once a unit is set it is saved as the default and doesnt display a question for units, unless the user prompts for it
 - R13: Allows the user to delete or edit an entry
+
+# Round 6 requirements
+
+- R14: Gives the user the option to export their data into a file that can be used in a spreadsheet (google sheets or excel).
