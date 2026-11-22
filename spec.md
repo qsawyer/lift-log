@@ -18,9 +18,10 @@ Each logged entry is a JSON object:
 | `unit`       | string | `lbs` or `kg` (Round 4; missing = `lbs`) |
 | `difficulty` | int    | 1–10 inclusive                         |
 | `date`       | string | ISO date (`YYYY-MM-DD`), defaults to today |
+| `id`         | int    | unique, never changes (Round 5)        |
 
-The file holds `{"version": 2, "settings": {...}, "entries": [ ... ]}`
-(see Round 4). Version 1 files (`{"version": 1, "entries": [...]}`, no
+The file holds `{"version": 3, "settings": {...}, "entries": [ ... ]}`
+(see Round 5; version 2 is described in Round 4). Version 1 files (`{"version": 1, "entries": [...]}`, no
 `unit` fields, no `settings`) are still read; their weights are lbs.
 
 ## Commands
@@ -32,6 +33,8 @@ The file holds `{"version": 2, "settings": {...}, "entries": [ ... ]}`
 - `improved [--units lbs|kg|both]` — show the 5 most-improved exercises (R9)
 - `summary [--week YYYY-MM-DD] [--units lbs|kg|both]` — weekly summary: workouts and PRs for one Mon-Sun week (R10)
 - `units [lbs|kg|both]` — show or save how weights are displayed (R11)
+- `edit ID [add's options]` — change fields of one entry (R13)
+- `delete ID [--yes]` — delete one entry after confirming (R13)
 
 Invalid input prints an error to stderr, exits with status 2, and does not change the file.
 
@@ -183,3 +186,92 @@ trailing zeros (`185`, `132.5`, `2.25`).
 `settings` is written only once a mode has been saved with `units`. Every
 save writes `"version": 2` and keeps the saved settings. Entries from a
 version 1 file are kept exactly as they are (no `unit` field is added).
+
+## Round 5
+
+Clarified with the user: the last `--unit` used on `add` becomes the
+default; with no saved default `add` logs lbs and never asks; entries get
+a stable ID; `delete` asks for confirmation.
+
+### R12 – saved default logging unit
+
+- `add --unit lbs|kg` logs that entry in the unit **and saves it as the
+  default logging unit** (`"settings": {"log_unit": "kg"}`). When this
+  changes the default, `add` also prints
+  `Default unit for new entries is now: kg`.
+- `add` without `--unit` logs in the saved default and asks nothing. With
+  no saved default (or an unknown value from a hand edit), it logs lbs, as
+  in Round 4.
+- Passing `--unit` again is how the user overrides or changes the default.
+  An invalid `--unit` is an input error (exit 2); nothing is saved and the
+  default is unchanged.
+- The logging default is separate from the R11 display mode: `units kg`
+  changes only how weights are shown, and `add --unit kg` changes only how
+  new entries are logged. `edit --unit` does not change the default.
+- Every save (`add`, `units`, `edit`, `delete`) keeps both settings.
+
+### R13 – edit or delete an entry
+
+**Entry IDs.** Every entry has a positive whole-number `id`, unique in its
+file. A new entry gets one more than the highest ID in the file. IDs never
+change, so deleting an entry does not renumber the others (only the
+highest ID can be given out again after it is deleted). Entries read from
+older files (version 1 or 2) have no IDs. They are numbered 1, 2, 3... in
+file order when read, after any IDs already in the file, and the numbers
+are written on the next save. A missing, non-integer or duplicate `id`
+from a hand edit is treated the same way.
+
+`view` shows each entry's ID first, and so do the `Saved:` line and the
+`edit`/`delete` output:
+
+```
+== legs ==
+  #3  2026-11-21  Squat: 5 sets x 5 reps @ 100 kg  (difficulty 8/10)
+```
+
+`ID` arguments may be written `7` or `#7`. An ID that is not a whole
+number, or that no entry has, is an input error (exit 2) and nothing is
+saved.
+
+**`delete ID [--yes]`**
+
+```
+#3  2026-11-21  Squat: 5 sets x 5 reps @ 100 kg  (difficulty 8/10)  [legs]
+Delete this entry? [y/N] y
+Deleted #3.
+```
+
+- The entry is shown with its weight as entered (like `Saved:`), then the
+  user is asked to confirm. Only `y` or `yes` (any case, surrounding spaces
+  ignored) deletes. Any other answer, or no input at all (end of input),
+  prints `Not deleted.`, leaves the file untouched and exits with status 1.
+- `--yes` (short: `-y`) deletes without asking.
+
+**`edit ID [--exercise] [--group] [--sets] [--reps] [--weight] [--unit] [--difficulty] [--date]`**
+
+```
+Was: #3  2026-11-21  Squat: 5 sets x 5 reps @ 100 kg  (difficulty 8/10)  [legs]
+Now: #3  2026-11-21  Squat: 5 sets x 6 reps @ 100 kg  (difficulty 8/10)  [legs]
+```
+
+- Takes the same options (and short flags) as `add`. Only the fields that
+  are given change; the rest are kept. At least one is required, or it is
+  an input error.
+- The new values are checked with the same rules as `add`. If any is
+  invalid, nothing is saved.
+- `--weight` without `--unit` keeps the entry's unit. `--unit` without
+  `--weight` relabels the stored number (100 lbs -> 100 kg). Stored weights
+  are never converted.
+- The entry keeps its ID and its place in the file. `prs`, `improved` and
+  `summary` reflect the edit on their next run.
+
+### Data file, version 3
+
+```
+{"version": 3, "settings": {"units": "kg", "log_unit": "kg"},
+ "entries": [{"id": 1, "exercise": "Squat", ...}, ...]}
+```
+
+Every save writes `"version": 3`. Version 1 and 2 files are still read.
+Their entries are kept as they are, except that each one gains an `id`.
+`settings` is written only once some setting has been saved.
