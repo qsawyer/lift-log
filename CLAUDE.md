@@ -17,8 +17,13 @@
   temporarily breaking the code (a mutation) and confirming a test fails.
 - Run the full suite, earlier rounds included, before every commit that touches code.
 - Never let a test read the terminal. Run any command that can ask a
-  question (e.g. `delete` without `--yes`) with explicit stdin, as the
-  `ask()` helper in `tests/test_round5.py` does. Otherwise the test can hang.
+  question (e.g. `delete` without `--yes`, or `export` onto an existing
+  file) with explicit stdin, as the `ask()` helper in `tests/test_round5.py`
+  does. Otherwise the test can hang.
+- Run the CLI in tests with `cwd` set to `tmp_path` (as `run()`/`ask()` do):
+  `export` writes `workouts.csv` into the current folder by default.
+- Read exported CSV with `encoding="utf-8-sig", newline=""` (the file
+  starts with a byte-order mark).
 - R12 makes `--unit` stick: once a test logs with `unit="kg"`, later adds
   without `unit=` in that same file also log kg. Pass `unit="lbs"` when a
   test needs lbs after a kg entry.
@@ -31,6 +36,12 @@
 - Changing the data file format requires bumping `FILE_VERSION` and still
   reading older files (see decision 0001).
 - Never read or modify the real `workouts.json`; it holds the user's data.
+  To try the program by hand, set `LIFT_LOG_FILE` to a scratch file and run
+  from a scratch folder (otherwise `view` reads the real data and `export`
+  copies it into the repo folder).
+- Code that writes any file other than the data file (like `export`) must
+  refuse to write onto the data file (`same_file()`), even with `--yes`,
+  and write through a temp file plus `os.replace`, like `save()`.
 - Pick an exercise's best entry only through `best_entry()` in `lift.py` (the
   R8 rule: heaviest weight, then more reps, then earlier date), so `prs` and
   other commands never disagree.
