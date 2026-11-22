@@ -28,13 +28,25 @@
 - Pick an exercise's best entry only through `best_entry()` in `lift.py` (the
   R8 rule: heaviest weight, then more reps, then earlier date), so `prs` and
   other commands never disagree.
-- Working-copy files use CRLF (`core.autocrlf=true`). Any script that rewrites a
-  source file must preserve its line endings (use bytes, not
-  `read_text`/`write_text`), and must restore the file exactly after a
-  mutation check.
+- Working-copy line endings are mixed (`core.autocrlf=true`; git stores LF).
+  `lift.py` and `README.md` are CRLF; the other tracked files are LF. Check a
+  file's bytes before rewriting it with a script, and preserve whatever it
+  has (use bytes, not `read_text`/`write_text`). Restore the file exactly
+  after a mutation check.
+- Weights have a unit (R6): every entry stores `weight` as typed plus `unit`
+  (`lbs` or `kg`; a missing `unit` means lbs). Never compare raw
+  `e["weight"]` values across entries; compare with `weight_lbs()` (or go
+  through `best_entry()`). Never convert weights in the stored data.
+- Print weights only through `fmt_weight(e, mode)` (and `fmt_gain()` for R9
+  gains), so the R11 display mode (`lbs`, `kg`, `both`) applies everywhere.
+  A new command that shows weights takes the `show` parent parser (`--units`)
+  and defaults to the saved mode.
+- Any code that saves the data file must carry the saved settings forward:
+  read with `load_file()` and call `save(path, entries, settings)`.
+  `save(path, entries)` alone drops the R11 display setting.
 - Shared test helpers (`add`, `run`, `data_file`) live in `tests/test_lift.py`
   and are imported by later test files; don't rename them without updating
-  every importer.
+  every importer. `add()` takes an optional `unit=` (omit for lbs).
 
 ## Git
 - Never undo or amend a commit (no `--amend`, `reset`, `revert` of pushed work,
