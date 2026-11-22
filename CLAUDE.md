@@ -16,6 +16,12 @@
 - Each test must be able to fail if the code it checks is wrong. Check this by
   temporarily breaking the code (a mutation) and confirming a test fails.
 - Run the full suite, earlier rounds included, before every commit that touches code.
+- Never let a test read the terminal. Run any command that can ask a
+  question (e.g. `delete` without `--yes`) with explicit stdin, as the
+  `ask()` helper in `tests/test_round5.py` does. Otherwise the test can hang.
+- R12 makes `--unit` stick: once a test logs with `unit="kg"`, later adds
+  without `unit=` in that same file also log kg. Pass `unit="lbs"` when a
+  test needs lbs after a kg entry.
 
 ## Code rules
 - Program output must be plain ASCII (e.g. `->`, not `→`). The user is on
@@ -43,10 +49,22 @@
   and defaults to the saved mode.
 - Any code that saves the data file must carry the saved settings forward:
   read with `load_file()` and call `save(path, entries, settings)`.
-  `save(path, entries)` alone drops the R11 display setting.
+  `save(path, entries)` alone drops both saved settings: `units` (the R11
+  display mode) and `log_unit` (the R12 logging default). Keep these two
+  settings separate; neither one changes the other.
+- Entries are identified by their stable `id` (R13), never by list position
+  or `view` order. Parse user-typed IDs with `parse_id()` and look them up
+  with `find_entry()`. Create entries only through `add_entry()`, which gives
+  out the ID. `load_file()` gives IDs to entries that lack them.
+- When printing a single entry with its weight as typed (`Saved:`,
+  `edit`, `delete`), use `describe(e)`.
+- Questions to the user go through `confirm()`, where end of input means
+  "no". A command that asks must also have a flag (like `--yes`) that skips
+  the question.
 - Shared test helpers (`add`, `run`, `data_file`) live in `tests/test_lift.py`
   and are imported by later test files; don't rename them without updating
-  every importer. `add()` takes an optional `unit=` (omit for lbs).
+  every importer. `add()` takes an optional `unit=` (omit it to use the
+  saved default unit, which is lbs until a unit has been given).
 
 ## Git
 - Never undo or amend a commit (no `--amend`, `reset`, `revert` of pushed work,
