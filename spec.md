@@ -35,6 +35,7 @@ The file holds `{"version": 3, "settings": {...}, "entries": [ ... ]}`
 - `units [lbs|kg|both]` — show or save how weights are displayed (R11)
 - `edit ID [add's options]` — change fields of one entry (R13)
 - `delete ID [--yes]` — delete one entry after confirming (R13)
+- `export [PATH] [--group GROUP] [--yes]` — write entries to a CSV file for a spreadsheet (R14)
 
 Invalid input prints an error to stderr, exits with status 2, and does not change the file.
 
@@ -275,3 +276,61 @@ Now: #3  2026-11-21  Squat: 5 sets x 6 reps @ 100 kg  (difficulty 8/10)  [legs]
 Every save writes `"version": 3`. Version 1 and 2 files are still read.
 Their entries are kept as they are, except that each one gains an `id`.
 `settings` is written only once some setting has been saved.
+
+## Round 6
+
+Clarified with the user: the file is CSV; weights are exported as logged
+plus converted lbs and kg columns; the path is an argument and an existing
+file is only replaced after the user confirms; every entry is exported,
+optionally only one muscle group.
+
+### R14 – export to a spreadsheet file
+
+**`export [PATH] [--group GROUP] [--yes]`**
+
+```
+$ python lift.py export
+Exported 3 entries to workouts.csv
+```
+
+- Writes a CSV file that opens in Excel and imports into Google Sheets.
+  `PATH` defaults to `workouts.csv` in the current folder. A relative path
+  is relative to the current folder.
+- One header row, then one row per entry:
+
+  ```
+  id,date,exercise,group,sets,reps,weight,unit,weight_lbs,weight_kg,difficulty
+  1,2026-11-18,Bench Press,chest,3,8,185,lbs,185,83.91,7
+  2,2026-11-20,Squat,legs,5,5,100,kg,220.46,100,8
+  ```
+
+  - `weight` and `unit` are exactly as logged (R6). Entries without a
+    `unit` (version 1 files) are `lbs`.
+  - `weight_lbs` and `weight_kg` are the same weight in each unit, formatted
+    like the rest of the program (at most two decimal places, no trailing
+    zeros; a weight in its own unit is the stored number). They let a
+    spreadsheet sort or chart entries logged in different units. The R11
+    display mode does not change the file.
+  - Exercise names are written as stored (not merged by `exercise_key()`);
+    groups are lowercase as stored.
+- Rows are ordered by date, oldest first; entries on the same date keep
+  their order in the data file.
+- `--group G` (short: `-g`) exports only that muscle group (case and
+  surrounding spaces ignored, like `view --group`).
+- The file is UTF-8 with a byte-order mark, so Excel shows non-ASCII
+  exercise names correctly, and uses the standard CSV quoting (a name with
+  a comma or quote is quoted). Lines end in CRLF, as the CSV standard says.
+- With no entries (empty log, or no entries in the group) the file has only
+  the header row, and the message says `Exported 0 entries`.
+- If `PATH` already exists, export prints `File PATH already exists.` and
+  asks `Overwrite it? [y/N]`. Only `y`/`yes` replaces it; any other answer
+  or end of input prints `Not exported.`, leaves the file untouched and
+  exits with status 1 (like `delete`). `--yes` (short: `-y`) replaces it
+  without asking.
+- Exporting onto the data file itself, or onto a folder, is an input error
+  (exit 2), even with `--yes`, and nothing is written.
+- The CSV is written to a temporary file next to `PATH` and then moved into
+  place, so a failure never leaves a half-written file. If it cannot be
+  written (e.g. the file is open in Excel), export prints an error and
+  exits with status 1.
+- Export only reads the data file; it never changes or creates it.
