@@ -27,6 +27,7 @@ The file holds `{"version": 1, "entries": [ ... ]}`.
 - `groups` — list muscle groups that have entries
 - `prs` — show the personal record for every exercise (R8)
 - `improved` — show the 5 most-improved exercises (R9)
+- `summary [--week YYYY-MM-DD]` — weekly summary: workouts and PRs for one Mon-Sun week (R10)
 
 Invalid input prints an error to stderr, exits with status 2, and does not change the file.
 
@@ -96,3 +97,30 @@ trailing zeros (`185`, `132.5`, `2.25`).
     ignoring case. At most 5 are shown.
   - If no exercise qualifies, it prints `No improvement recorded yet.` (or
     `No workouts logged yet.` when the file is empty).
+
+## Round 3
+
+- **R10 – weekly summary.** `summary [--week YYYY-MM-DD]` prints how many
+  workouts the user did in one week and their PRs for that week:
+
+  ```
+  Week of 2026-11-16 to 2026-11-22
+  Workouts: 2
+  PRs this week (best lift per exercise):
+    Bench Press: 225 lbs x 5 reps (3 sets) on 2026-11-18
+    Squat: 235 lbs x 5 reps (5 sets) on 2026-11-20
+  ```
+
+  - *Week* = a calendar week, Monday through Sunday. By default it is the
+    week containing today. `--week DATE` selects the week containing DATE
+    (any day of that week). An invalid date is an input error (exit 2).
+  - *Workouts* = the number of distinct dates in the week with at least one
+    logged entry. Several exercises on one day are one workout.
+  - *PRs this week* = for every exercise logged that week, its best entry
+    within the week, using the R8 rule (heaviest weight; ties go to more reps,
+    then the earlier date). Earlier weeks are not considered, so a lift can be
+    listed even if it is not an all-time record. Exercises are matched with the
+    Round 2 exercise identity and listed alphabetically, ignoring case. The name
+    shown is the same spelling `prs` shows (the most recently logged one).
+  - A week with no entries (including an empty log) prints the heading, then
+    `Workouts: 0` and `No lifts logged this week.`
