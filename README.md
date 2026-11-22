@@ -21,8 +21,14 @@ python lift.py add -e Squat -g legs -s 5 -r 5 -w 225.5 -d 9 --date 2026-11-01
 python lift.py add -e Deadlift -g back -s 3 -r 5 -w 140 --unit kg -d 8
 ```
 
-`--date` is optional and defaults to today. `--unit` is `lbs` (the default) or
-`kg`; the weight is saved exactly as you typed it. Short flags: `-e -g -s -r -w -d`.
+`--date` is optional and defaults to today. `--unit` is `lbs` or `kg`; the
+weight is saved exactly as you typed it. Short flags: `-e -g -s -r -w -d`.
+
+The unit you pick is remembered: after one `add ... --unit kg`, later adds
+without `--unit` are logged in kg, with no question asked, until you pass
+`--unit lbs`. `add` tells you when the default changes
+(`Default unit for new entries is now: kg`). Until you first pass `--unit`,
+entries are logged in lbs. This is separate from the display setting below.
 
 ### View saved workouts
 
@@ -36,10 +42,27 @@ Example output:
 
 ```
 == chest ==
-  2026-11-21  Bench Press: 3 sets x 8 reps @ 185 lbs  (difficulty 7/10)
+  #1  2026-11-21  Bench Press: 3 sets x 8 reps @ 185 lbs  (difficulty 7/10)
 == legs ==
-  2026-11-01  Squat: 5 sets x 5 reps @ 225.5 lbs  (difficulty 9/10)
+  #2  2026-11-01  Squat: 5 sets x 5 reps @ 225.5 lbs  (difficulty 9/10)
 ```
+
+`#1`, `#2` are entry IDs, used by `edit` and `delete`. An entry's ID never
+changes, even when other entries are deleted.
+
+### Fix or remove an entry
+
+```
+python lift.py edit 2 --reps 6            # change only the reps of entry #2
+python lift.py edit 2 -w 230 -d 8         # any of add's options can be changed
+python lift.py delete 2                   # shows the entry and asks [y/N]
+python lift.py delete 2 --yes             # delete without asking
+```
+
+`edit` prints the entry before and after (`Was:` / `Now:`). Changing
+`--weight` keeps the entry's unit; changing `--unit` alone only relabels the
+number (100 lbs becomes 100 kg), it does not convert it. `delete` only deletes
+if you answer `y` or `yes`; anything else leaves the entry alone.
 
 ### Personal records and progress
 
