@@ -4,3 +4,4 @@ __pycache__/
 *.jsonl
 # user's saved workout data
 workouts.json
+workouts.csv
