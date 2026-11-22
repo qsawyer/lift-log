@@ -12,12 +12,14 @@ Usage:
     python lift.py units [lbs|kg|both]
     python lift.py edit ID [any add option ...]
     python lift.py delete ID [--yes]
+    python lift.py export [PATH] [--group GROUP] [--yes]
 
 Data is saved to workouts.json next to this file after every change,
 unless --file or the LIFT_LOG_FILE environment variable points elsewhere.
 """
 
 import argparse
+import csv
 import datetime
 import json
 import os
@@ -503,6 +505,71 @@ def format_summary(entries, day, units=DEFAULT_DISPLAY):
     return "\n".join(lines)
 
 
+# ---------- export (R14) ----------
+
+DEFAULT_EXPORT = "workouts.csv"
+EXPORT_COLUMNS = ("id", "date", "exercise", "group", "sets", "reps", "weight",
+                  "unit", "weight_lbs", "weight_kg", "difficulty")
+
+
+def export_weight(e, unit):
+    """The weight in `unit` for the CSV: the stored number in its own unit,
+    otherwise converted and formatted like the rest of the program."""
+    if entry_unit(e) == unit:
+        return str(e["weight"])
+    return fmt_num(weight_in(e, unit))
+
+
+def export_rows(entries, group=None):
+    """Header plus one row of strings per entry, oldest date first (R14).
+
+    Same-date entries keep their file order (sorted() is stable). With
+    `group`, only that muscle group is included, matched like `view`.
+    """
+    if group is not None:
+        group = group.strip().lower()
+        entries = [e for e in entries if e["group"] == group]
+    rows = [list(EXPORT_COLUMNS)]
+    for e in sorted(entries, key=lambda e: e["date"]):
+        rows.append([str(e["id"]), e["date"], e["exercise"], e["group"],
+                     str(e["sets"]), str(e["reps"]), str(e["weight"]),
+                     entry_unit(e), export_weight(e, "lbs"),
+                     export_weight(e, "kg"), str(e["difficulty"])])
+    return rows
+
+
+def same_file(a, b):
+    """True when two paths name the same file, however they are written."""
+    a, b = Path(a), Path(b)
+    if a.exists() and b.exists():
+        return os.path.samefile(a, b)
+    return (os.path.normcase(a.resolve()) == os.path.normcase(b.resolve()))
+
+
+def check_export_path(out, data):
+    """Refuse targets that must never be written by export (input errors)."""
+    if same_file(out, data):
+        raise InputError(f"{out} is the data file; export to a different file")
+    if Path(out).is_dir():
+        raise InputError(f"{out} is a folder; give a file name like"
+                         f" {Path(out) / DEFAULT_EXPORT}")
+
+
+def write_csv(path, rows):
+    """Write rows as UTF-8 CSV with a byte-order mark (so Excel reads
+    non-ASCII names) and CRLF line ends, via a temp file moved into place."""
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".lift-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8-sig", newline="") as f:
+            csv.writer(f).writerows(rows)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
 def parse_date(value):
     try:
         return datetime.date.fromisoformat(value)
@@ -563,6 +630,14 @@ def build_parser():
                        help="weekly summary: workouts and PRs (Mon-Sun)")
     w.add_argument("--week", help="any date in the week, YYYY-MM-DD (default: this week)")
 
+    x = sub.add_parser("export",
+                       help="write entries to a CSV file for a spreadsheet")
+    x.add_argument("path", nargs="?", default=DEFAULT_EXPORT,
+                   help=f"CSV file to write (default: {DEFAULT_EXPORT})")
+    x.add_argument("--group", "-g", help="only export this muscle group")
+    x.add_argument("--yes", "-y", action="store_true",
+                   help="replace an existing file without asking")
+
     u = sub.add_parser("units", help="show or save how weights are displayed")
     u.add_argument("mode", nargs="?", type=str.lower, choices=DISPLAY_UNITS,
                    help="lbs, kg or both (omit to see the current setting)")
@@ -609,6 +684,23 @@ def main(argv=None):
                 return 1
             delete_entry(path, entry_id)
             print(f"Deleted #{entry_id}.")
+        elif args.command == "export":
+            check_export_path(args.path, path)
+            rows = export_rows(load(path), args.group)
+            if Path(args.path).exists() and not args.yes:
+                print(f"File {args.path} already exists.")
+                if not confirm("Overwrite it? [y/N] "):
+                    print("Not exported.")
+                    return 1
+            try:
+                write_csv(args.path, rows)
+            except OSError as exc:
+                print(f"error: could not write {args.path}: {exc}",
+                      file=sys.stderr)
+                return 1
+            n = len(rows) - 1
+            print(f"Exported {n} {'entry' if n == 1 else 'entries'}"
+                  f" to {args.path}")
         elif args.command == "groups":
             groups = sorted({e["group"] for e in load(path)})
             print("\n".join(groups) if groups else "No workouts logged yet.")
